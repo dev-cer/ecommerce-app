@@ -49,47 +49,53 @@ pub async fn track(State(state): State<AppState>, req: Request, next: Next) -> R
     response
 }
 
-pub fn render(state: &AppState) -> String {
-    let stats = state.stats();
+pub async fn render(state: &AppState) -> String {
     let mut out = String::new();
-
     let mut metric = |name: &str, kind: &str, help: &str, samples: &[(String, String)]| {
         let _ = writeln!(out, "# HELP {name} {help}\n# TYPE {name} {kind}");
         for (labels, value) in samples {
             let _ = writeln!(out, "{name}{labels} {value}");
         }
     };
-    let plain = |v: String| [(String::new(), v)];
+    let plain = |v: i64| [(String::new(), v.to_string())];
 
-    metric(
-        "nusamart_orders_total",
-        "counter",
-        "Jumlah order yang berhasil.",
-        &plain(stats.orders.to_string()),
-    );
-    metric(
-        "nusamart_items_sold_total",
-        "counter",
-        "Jumlah item terjual.",
-        &plain(stats.items_sold.to_string()),
-    );
-    metric(
-        "nusamart_revenue_rupiah_total",
-        "counter",
-        "Total omzet dalam Rupiah.",
-        &plain(stats.revenue.to_string()),
-    );
-    metric(
-        "nusamart_stock_units",
-        "gauge",
-        "Total unit stok tersisa.",
-        &plain(stats.stock_units.to_string()),
-    );
+    // Metrik bisnis berasal dari database bersama: semua replika melaporkan angka global yang sama,
+    // jadi di Grafana diagregasi dengan max(), bukan sum(). Jika DB tak terjangkau, bagian ini dilewati.
+    if let Ok(stats) = state.stats().await {
+        for (name, kind, help, value) in [
+            (
+                "nusamart_orders_total",
+                "counter",
+                "Jumlah order yang berhasil.",
+                stats.orders,
+            ),
+            (
+                "nusamart_items_sold_total",
+                "counter",
+                "Jumlah item terjual.",
+                stats.items_sold,
+            ),
+            (
+                "nusamart_revenue_rupiah_total",
+                "counter",
+                "Total omzet dalam Rupiah.",
+                stats.revenue,
+            ),
+            (
+                "nusamart_stock_units",
+                "gauge",
+                "Total unit stok tersisa.",
+                stats.stock_units,
+            ),
+        ] {
+            metric(name, kind, help, &plain(value));
+        }
+    }
     metric(
         "nusamart_uptime_seconds",
         "gauge",
         "Lama proses berjalan.",
-        &plain(state.started_at.elapsed().as_secs().to_string()),
+        &plain(state.started_at.elapsed().as_secs() as i64),
     );
     metric(
         "nusamart_build_info",
@@ -97,9 +103,10 @@ pub fn render(state: &AppState) -> String {
         "Build yang sedang berjalan.",
         &[(
             format!(
-                "{{build=\"{}\",version=\"{}\"}}",
+                "{{build=\"{}\",version=\"{}\",storage=\"{}\"}}",
                 state.build,
-                env!("CARGO_PKG_VERSION")
+                env!("CARGO_PKG_VERSION"),
+                state.store.kind()
             ),
             "1".into(),
         )],

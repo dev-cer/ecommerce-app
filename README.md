@@ -1,20 +1,38 @@
 # 🛒 NusaMart — E-commerce Demo
 
-Storefront + REST API dalam **satu binary Rust** (Axum + Tokio). Tanpa database, tanpa setup — cocok untuk demo sprint review / showcase agile.
+Storefront + REST API dalam **satu binary Rust** (Axum + Tokio) dengan **PostgreSQL**. Siap multi-replika dan autoscaling di Kubernetes, tapi tetap bisa jalan tanpa database untuk demo cepat.
 
 ## Jalankan
 
 ```bash
-cargo run                 # http://localhost:8080
-PORT=3000 cargo run       # port lain
+docker compose up --build   # app + PostgreSQL → http://localhost:8080
+cargo run                   # tanpa database (penyimpanan in-memory, 1 replika saja)
 ```
 
-Atau dengan Docker:
+| Env | Default | Keterangan |
+|---|---|---|
+| `DATABASE_URL` | – | Jika di-set, pakai PostgreSQL (migrasi & seed katalog otomatis saat start) |
+| `DB_MAX_CONNECTIONS` | `10` | Ukuran pool koneksi per pod |
+| `PORT` | `8080` | Port HTTP |
+| `RESTOCK_INTERVAL_SECS` | `60` | Interval restock otomatis, `0` = mati |
+| `APP_VERSION` | `dev` | Tag build (diisi CI), tampil di footer |
+
+## Penyimpanan & skalabilitas
+
+- **PostgreSQL** (`src/store/postgres.rs`) menyimpan produk, order, dan item order. Skema ada di `migrations/`.
+- Order diproses dalam **satu transaksi**: stok dikurangi dengan `UPDATE … WHERE stock >= qty`, sehingga banyak pod yang melayani order bersamaan **tidak pernah menjual melebihi stok**. Constraint `CHECK (stock >= 0)` menjadi pengaman terakhir. Baris diproses berurutan per id produk untuk mencegah deadlock.
+- Karena state tidak lagi di memori pod, aplikasi berjalan **2–6 replika dengan HPA** (`k8s/hpa.yaml`, target CPU 60%).
+- `/health` = liveness (proses hidup); `/ready` = readiness (database terjangkau). Pod tanpa koneksi DB otomatis dikeluarkan dari load balancer.
+- Tanpa `DATABASE_URL`, aplikasi memakai store in-memory (`src/store/memory.rs`) dengan perilaku yang sama. Ini praktis untuk dev, tapi hanya untuk 1 replika.
+
+Test berjalan untuk kedua backend:
 
 ```bash
-docker build -t nusamart .
-docker run --rm -p 8080:8080 nusamart
+cargo test                                                                  # in-memory
+TEST_DATABASE_URL=postgres://postgres@localhost:5432/postgres cargo test    # + PostgreSQL
 ```
+
+Dengan PostgreSQL, tiap test membuat database sementara sendiri, termasuk test **dua replika** yang memproses 60 order paralel untuk stok 6.
 
 ## Alur demo (± 3 menit)
 
@@ -38,7 +56,8 @@ curl -X POST localhost:8080/api/orders \
 | Method | Endpoint              | Keterangan                                   |
 |--------|-----------------------|----------------------------------------------|
 | GET    | `/`                   | Storefront web                               |
-| GET    | `/health`             | Status, versi, uptime                        |
+| GET    | `/health`             | Liveness: status, versi, build, pod, storage |
+| GET    | `/ready`              | Readiness: 200 jika database terjangkau      |
 | GET    | `/api/products`       | Daftar produk (`?category=` & `?q=` opsional) |
 | GET    | `/api/products/{id}`  | Detail produk                                |
 | GET    | `/api/orders`         | Daftar order (terbaru dulu)                  |
@@ -69,7 +88,7 @@ $env:GITHUB_TOKEN = "<PAT: repo, write:packages>"   # jangan pernah ditulis di s
 ./deploy/master-demo.ps1 -TerraformDir ../infra
 ```
 
-Footer storefront menampilkan `build <tag> · pod <nama>`, jadi audience bisa melihat versi baru muncul setelah ArgoCD selesai rollout.
+Footer storefront menampilkan `build <tag> · pod <nama>`, jadi audience bisa melihat versi baru muncul setelah ArgoCD selesai rollout, dan nama pod berganti-ganti karena load balancing antar replika.
 
 ## Security testing
 
@@ -90,7 +109,7 @@ k6 run -e BASE_URL=http://localhost:8080 -e PROFILE=stress tests/load/stress.js 
 k6 run -e BASE_URL=http://localhost:8080 -e PROFILE=spike  tests/load/stress.js   # lonjakan 400 VU
 ```
 
-Di klaster (tanpa perlu k6 di laptop): `./deploy/stress-test.ps1 -Profile stress`. Script k6 dijalankan sebagai Job di system-pool, sementara dashboard Grafana menampilkan RPS, latensi p50/p95/p99, traffic per status, stok, dan CPU.
+Di klaster (tanpa perlu k6 di laptop): `./deploy/stress-test.ps1 -Profile stress`. Script k6 dijalankan sebagai Job di system-pool, sementara dashboard Grafana menampilkan RPS, latensi p50/p95/p99, traffic per status, stok, CPU, dan **jumlah replika HPA yang naik-turun** (`kubectl get hpa ecommerce-rust -w`).
 
 Threshold: error < 1%, p95 baca < 200 ms (smoke) / 500 ms (stress), p95 tulis < 300 / 800 ms. Respons `409` (stok habis) dihitung sebagai perilaku benar, bukan error. Stok otomatis di-restock tiap 60 detik (`RESTOCK_INTERVAL_SECS`, `0` = mati), jadi storefront tetap bisa dipakai setelah stress test.
 
@@ -100,7 +119,8 @@ Threshold: error < 1%, p95 baca < 200 ms (smoke) / 500 ms (stress), p95 tulis < 
 src/
 ├── main.rs      # bootstrap server, logging, graceful shutdown
 ├── routes.rs    # definisi route & handler HTTP
-├── state.rs     # state in-memory: katalog, order, statistik
+├── state.rs     # AppState + validasi order
+├── store/       # penyimpanan: mod.rs (antarmuka), postgres.rs, memory.rs
 ├── catalog.rs   # data produk awal
 ├── error.rs     # error API → JSON
 ├── metrics.rs   # metrik Prometheus + middleware latensi
@@ -109,9 +129,10 @@ src/
 static/          # storefront: index.html, app.css, app.js (di-embed ke binary)
 tests/load/      # skenario k6
 .zap/            # aturan OWASP ZAP
-k8s/             # manifest GitOps (ArgoCD)
+migrations/      # skema PostgreSQL (sqlx migrate)
+k8s/             # manifest GitOps: app, PostgreSQL StatefulSet, HPA, NetworkPolicy, monitoring
 deploy/          # master-demo.ps1 (provisioning) & stress-test.ps1
 Jenkinsfile      # pipeline CI/DevSecOps
 ```
 
-Data disimpan di memori, jadi restart server = reset demo.
+Di Kubernetes, password database disimpan di Secret `postgres-credentials` yang dibuat sekali oleh `deploy/master-demo.ps1` (password acak, tidak pernah masuk Git). NetworkPolicy membatasi akses ke PostgreSQL hanya dari pod aplikasi.

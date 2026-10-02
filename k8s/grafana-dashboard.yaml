@@ -80,7 +80,7 @@ data:
           },
           "gridPos": {
             "h": 5,
-            "w": 4,
+            "w": 3,
             "x": 4,
             "y": 0
           },
@@ -128,8 +128,8 @@ data:
           },
           "gridPos": {
             "h": 5,
-            "w": 4,
-            "x": 8,
+            "w": 3,
+            "x": 7,
             "y": 0
           },
           "targets": [
@@ -167,17 +167,17 @@ data:
           }
         },
         {
-          "id": 5,
+          "id": 20,
           "type": "stat",
-          "title": "Total order",
+          "title": "Pod aktif",
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
           },
           "gridPos": {
             "h": 5,
-            "w": 4,
-            "x": 12,
+            "w": 3,
+            "x": 10,
             "y": 0
           },
           "targets": [
@@ -187,7 +187,55 @@ data:
                 "type": "prometheus",
                 "uid": "prometheus"
               },
-              "expr": "sum(nusamart_orders_total)",
+              "expr": "sum(kube_deployment_status_replicas_available{namespace=\"default\",deployment=\"ecommerce-rust\"})",
+              "legendFormat": ""
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "none",
+              "color": {
+                "mode": "fixed",
+                "fixedColor": "purple"
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "colorMode": "background",
+            "graphMode": "area",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "textMode": "value"
+          }
+        },
+        {
+          "id": 5,
+          "type": "stat",
+          "title": "Total order",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "h": 5,
+            "w": 3,
+            "x": 13,
+            "y": 0
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "max(nusamart_orders_total)",
               "legendFormat": ""
             }
           ],
@@ -235,7 +283,7 @@ data:
                 "type": "prometheus",
                 "uid": "prometheus"
               },
-              "expr": "sum(nusamart_revenue_rupiah_total)",
+              "expr": "max(nusamart_revenue_rupiah_total)",
               "legendFormat": ""
             }
           ],
@@ -293,7 +341,7 @@ data:
             "defaults": {
               "color": {
                 "mode": "fixed",
-                "fixedColor": "purple"
+                "fixedColor": "blue"
               }
             },
             "overrides": []
@@ -494,7 +542,7 @@ data:
                 "type": "prometheus",
                 "uid": "prometheus"
               },
-              "expr": "sum(increase(nusamart_orders_total[1m]))",
+              "expr": "max(increase(nusamart_orders_total[1m]))",
               "legendFormat": "order/menit"
             }
           ],
@@ -543,7 +591,7 @@ data:
                 "type": "prometheus",
                 "uid": "prometheus"
               },
-              "expr": "sum(nusamart_stock_units)",
+              "expr": "max(nusamart_stock_units)",
               "legendFormat": "stok"
             }
           ],
@@ -592,7 +640,7 @@ data:
                 "type": "prometheus",
                 "uid": "prometheus"
               },
-              "expr": "sum(increase(nusamart_revenue_rupiah_total[5m]))",
+              "expr": "max(increase(nusamart_revenue_rupiah_total[5m]))",
               "legendFormat": "omzet"
             }
           ],
@@ -630,7 +678,7 @@ data:
           },
           "gridPos": {
             "h": 8,
-            "w": 12,
+            "w": 8,
             "x": 0,
             "y": 21
           },
@@ -679,8 +727,8 @@ data:
           },
           "gridPos": {
             "h": 8,
-            "w": 12,
-            "x": 12,
+            "w": 8,
+            "x": 8,
             "y": 21
           },
           "targets": [
@@ -707,6 +755,96 @@ data:
               }
             },
             "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom"
+            },
+            "tooltip": {
+              "mode": "multi"
+            }
+          }
+        },
+        {
+          "id": 21,
+          "type": "timeseries",
+          "title": "Replika (HPA): saat ini vs diinginkan",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 8,
+            "x": 16,
+            "y": 21
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "max(kube_horizontalpodautoscaler_status_current_replicas{namespace=\"default\",horizontalpodautoscaler=\"ecommerce-rust\"})",
+              "legendFormat": "saat ini"
+            },
+            {
+              "refId": "B",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "max(kube_horizontalpodautoscaler_status_desired_replicas{namespace=\"default\",horizontalpodautoscaler=\"ecommerce-rust\"})",
+              "legendFormat": "diinginkan"
+            },
+            {
+              "refId": "C",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "max(kube_horizontalpodautoscaler_spec_max_replicas{namespace=\"default\",horizontalpodautoscaler=\"ecommerce-rust\"})",
+              "legendFormat": "maksimum"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "none",
+              "decimals": 0,
+              "min": 0,
+              "custom": {
+                "fillOpacity": 15,
+                "lineWidth": 2,
+                "showPoints": "never",
+                "lineInterpolation": "stepAfter"
+              }
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "maksimum"
+                },
+                "properties": [
+                  {
+                    "id": "custom.lineStyle",
+                    "value": {
+                      "fill": "dash",
+                      "dash": [
+                        6,
+                        6
+                      ]
+                    }
+                  },
+                  {
+                    "id": "custom.fillOpacity",
+                    "value": 0
+                  }
+                ]
+              }
+            ]
           },
           "options": {
             "legend": {

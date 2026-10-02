@@ -6,6 +6,7 @@ mod metrics;
 mod routes;
 mod security;
 mod state;
+mod store;
 #[cfg(test)]
 mod tests;
 
@@ -16,10 +17,13 @@ use tower_http::trace::{DefaultMakeSpan, DefaultOnResponse, TraceLayer};
 use tracing::Level;
 use tracing_subscriber::EnvFilter;
 
-use crate::state::AppState;
+use crate::{
+    state::AppState,
+    store::{MemoryStore, PgStore, Store},
+};
 
 #[tokio::main]
-async fn main() -> std::io::Result<()> {
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing_subscriber::fmt()
         .with_env_filter(
             EnvFilter::try_from_default_env().unwrap_or_else(|_| "info,tower_http=info".into()),
@@ -37,12 +41,14 @@ async fn main() -> std::io::Result<()> {
     let trace = TraceLayer::new_for_http()
         .make_span_with(DefaultMakeSpan::new().level(Level::INFO))
         .on_response(DefaultOnResponse::new().level(Level::INFO));
-    let state = AppState::new();
+    let store = connect_store().await?;
+    let storage = store.kind();
+    let state = AppState::new(store);
     spawn_restocker(state.clone());
     let app = routes::router(state).layer(trace);
 
     let listener = TcpListener::bind(addr).await?;
-    print_banner(port);
+    print_banner(port, storage);
 
     axum::serve(listener, app)
         .with_graceful_shutdown(shutdown_signal())
@@ -52,7 +58,7 @@ async fn main() -> std::io::Result<()> {
     Ok(())
 }
 
-fn print_banner(port: u16) {
+fn print_banner(port: u16, storage: &str) {
     let base = format!("http://localhost:{port}");
     let rows = [
         format!("NusaMart · E-commerce Demo v{}", env!("CARGO_PKG_VERSION")),
@@ -60,6 +66,7 @@ fn print_banner(port: u16) {
         format!("Storefront  →  {base}"),
         format!("API         →  {base}/api/products"),
         format!("Health      →  {base}/health"),
+        format!("Storage     →  {storage}"),
     ];
     let width = rows.iter().map(|r| r.chars().count()).max().unwrap_or(0) + 4;
     println!("\n  ╭{}╮", "─".repeat(width));
@@ -69,8 +76,28 @@ fn print_banner(port: u16) {
     println!("  ╰{}╯\n", "─".repeat(width));
 }
 
+/// `DATABASE_URL` di-set → PostgreSQL (wajib untuk multi-replika); jika tidak → in-memory.
+async fn connect_store() -> Result<Store, sqlx::Error> {
+    let Some(url) = std::env::var("DATABASE_URL").ok().filter(|v| !v.is_empty()) else {
+        tracing::warn!(
+            "DATABASE_URL tidak di-set: memakai penyimpanan in-memory (hanya untuk 1 replika)"
+        );
+        return Ok(Store::Memory(MemoryStore::new()));
+    };
+    let max_connections = std::env::var("DB_MAX_CONNECTIONS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(10);
+    let store = PgStore::connect(&url, max_connections).await?;
+    tracing::info!(
+        max_connections,
+        "terhubung ke PostgreSQL, migrasi & seed selesai"
+    );
+    Ok(Store::Postgres(store))
+}
+
 /// Gudang otomatis: isi ulang stok berkala supaya demo tetap bisa dipakai setelah stress test.
-/// Set `RESTOCK_INTERVAL_SECS=0` untuk mematikan.
+/// Set `RESTOCK_INTERVAL_SECS=0` untuk mematikan. Aman dijalankan oleh banyak replika sekaligus.
 fn spawn_restocker(state: AppState) {
     let secs: u64 = std::env::var("RESTOCK_INTERVAL_SECS")
         .ok()
@@ -84,9 +111,10 @@ fn spawn_restocker(state: AppState) {
         interval.tick().await;
         loop {
             interval.tick().await;
-            let added = state.restock();
-            if added > 0 {
-                tracing::info!(units = added, "gudang restock otomatis");
+            match state.store.restock().await {
+                Ok(0) => {}
+                Ok(units) => tracing::info!(units, "gudang restock otomatis"),
+                Err(err) => tracing::warn!(?err, "restock gagal"),
             }
         }
     });

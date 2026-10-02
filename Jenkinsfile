@@ -1,5 +1,5 @@
 // NusaMart CI/DevSecOps pipeline
-// Lint + test & SCA/secret scan → DAST (ZAP) + load test (k6) pada server sementara di pod
+// Lint + test (memory & Postgres) & SCA/secret scan → DAST (ZAP) + load test (k6) pada server sementara di pod
 // → build image (Kaniko) → scan image (Trivy) → update manifest k8s/ → ArgoCD sync.
 //
 // Kebutuhan di namespace Jenkins (dibuat oleh deploy/master-demo.ps1):
@@ -25,6 +25,12 @@ spec:
       volumeMounts:
         - name: docker-config
           mountPath: /kaniko/.docker
+    - name: postgres
+      image: postgres:17-alpine
+      env:
+        # Database sementara khusus CI (dibuang bersama pod), jadi trust auth cukup.
+        - name: POSTGRES_HOST_AUTH_METHOD
+          value: trust
     - name: zap
       image: ghcr.io/zaproxy/zaproxy:stable
       command: ["sleep"]
@@ -70,6 +76,8 @@ spec:
     MANIFEST   = 'k8s/deployment.yaml'
     // Semua container di pod berbagi network, jadi ZAP & k6 bisa menembak server sementara via localhost.
     TEST_URL   = 'http://localhost:18080'
+    // Postgres sidecar: test integrasi membuat database sendiri per test, server sementara memakai `postgres`.
+    PG_URL     = 'postgres://postgres@localhost:5432/postgres'
   }
 
   stages {
@@ -100,7 +108,11 @@ spec:
                 rustup component add rustfmt clippy
                 cargo fmt --check
                 cargo clippy --all-targets --locked -- -D warnings
-                cargo test --locked
+                for i in $(seq 1 60); do
+                  bash -c 'echo > /dev/tcp/127.0.0.1/5432' 2>/dev/null && break
+                  sleep 1
+                done
+                TEST_DATABASE_URL="$PG_URL" cargo test --locked
                 cargo build --locked
               '''
             }
@@ -123,10 +135,10 @@ spec:
           steps {
             container('rust') {
               sh '''
-                JENKINS_NODE_COOKIE=dontKillMe setsid nohup env PORT=18080 APP_VERSION="$TAG" RESTOCK_INTERVAL_SECS=0 \
+                JENKINS_NODE_COOKIE=dontKillMe setsid nohup env PORT=18080 APP_VERSION="$TAG" RESTOCK_INTERVAL_SECS=0 DATABASE_URL="$PG_URL" \
                   ./target/debug/app-repo > reports/app.log 2>&1 &
                 for i in $(seq 1 30); do
-                  wget -qO- "$TEST_URL/health" && exit 0
+                  wget -qO- "$TEST_URL/ready" && exit 0
                   sleep 1
                 done
                 cat reports/app.log

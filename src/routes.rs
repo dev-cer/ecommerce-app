@@ -16,7 +16,8 @@ use crate::{
     catalog::Product,
     error::ApiResult,
     metrics, security,
-    state::{AppState, Order, OrderRequest, Stats},
+    state::{AppState, OrderRequest},
+    store::{Order, Stats},
 };
 
 /// Ukuran body request maksimum; order terbesar yang valid jauh di bawah ini.
@@ -35,6 +36,7 @@ pub fn router(state: AppState) -> Router {
         .route("/app.css", get(stylesheet))
         .route("/app.js", get(script))
         .route("/health", get(health))
+        .route("/ready", get(ready))
         .route("/metrics", get(metrics))
         .nest("/api", api)
         .layer(DefaultBodyLimit::max(MAX_BODY_BYTES))
@@ -75,18 +77,32 @@ fn static_asset(content_type: &'static str, body: &'static str) -> impl IntoResp
     )
 }
 
+/// Liveness: proses hidup. Tidak bergantung pada database agar pod tidak di-restart saat DB lambat.
 async fn health(State(state): State<AppState>) -> Json<Value> {
     Json(json!({
         "status": "ok",
         "version": env!("CARGO_PKG_VERSION"),
         "build": &*state.build,
         "instance": &*state.instance,
+        "storage": state.store.kind(),
         "uptime_seconds": state.started_at.elapsed().as_secs(),
     }))
 }
 
+/// Readiness: pod hanya menerima traffic jika penyimpanan terjangkau.
+async fn ready(State(state): State<AppState>) -> (StatusCode, Json<Value>) {
+    if state.store.ready().await {
+        (StatusCode::OK, Json(json!({ "status": "ready" })))
+    } else {
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({ "status": "database tidak terjangkau" })),
+        )
+    }
+}
+
 async fn metrics(State(state): State<AppState>) -> String {
-    metrics::render(&state)
+    metrics::render(&state).await
 }
 
 #[derive(Deserialize)]
@@ -98,19 +114,22 @@ struct ProductFilter {
 async fn list_products(
     State(state): State<AppState>,
     Query(filter): Query<ProductFilter>,
-) -> Json<Vec<Product>> {
-    Json(state.products(filter.category.as_deref(), filter.q.as_deref()))
+) -> ApiResult<Json<Vec<Product>>> {
+    state
+        .products(filter.category.as_deref(), filter.q.as_deref())
+        .await
+        .map(Json)
 }
 
 async fn get_product(
     State(state): State<AppState>,
-    Path(id): Path<u32>,
+    Path(id): Path<i32>,
 ) -> ApiResult<Json<Product>> {
-    state.product(id).map(Json)
+    state.product(id).await.map(Json)
 }
 
-async fn list_orders(State(state): State<AppState>) -> Json<Vec<Order>> {
-    Json(state.orders())
+async fn list_orders(State(state): State<AppState>) -> ApiResult<Json<Vec<Order>>> {
+    state.orders().await.map(Json)
 }
 
 async fn create_order(
@@ -119,9 +138,10 @@ async fn create_order(
 ) -> ApiResult<(StatusCode, Json<Order>)> {
     state
         .place_order(req)
+        .await
         .map(|order| (StatusCode::CREATED, Json(order)))
 }
 
-async fn stats(State(state): State<AppState>) -> Json<Stats> {
-    Json(state.stats())
+async fn stats(State(state): State<AppState>) -> ApiResult<Json<Stats>> {
+    state.stats().await.map(Json)
 }

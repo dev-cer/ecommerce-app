@@ -5,8 +5,8 @@ metadata:
   labels:
     app: ecommerce-rust
 spec:
-  # 1 replika: state order disimpan in-memory, jadi multi-replika membuat statistik tidak konsisten.
-  replicas: 1
+  # Jumlah replika diatur oleh HPA (hpa.yaml). Field `replicas` sengaja tidak ditulis supaya
+  # ArgoCD (selfHeal) tidak melawan HPA dengan mengembalikan jumlahnya.
   strategy:
     type: RollingUpdate
     rollingUpdate:
@@ -35,9 +35,20 @@ spec:
           ports:
             - name: http
               containerPort: 8080
+          env:
+            - name: PGUSER
+              valueFrom: { secretKeyRef: { name: postgres-credentials, key: username } }
+            - name: PGPASSWORD
+              valueFrom: { secretKeyRef: { name: postgres-credentials, key: password } }
+            - name: PGDATABASE
+              valueFrom: { secretKeyRef: { name: postgres-credentials, key: database } }
+            - name: DATABASE_URL
+              value: postgres://$(PGUSER):$(PGPASSWORD)@postgres:5432/$(PGDATABASE)
+            - name: DB_MAX_CONNECTIONS
+              value: "10"
           readinessProbe:
             httpGet:
-              path: /health
+              path: /ready
               port: http
             periodSeconds: 5
           livenessProbe:
@@ -48,7 +59,7 @@ spec:
             periodSeconds: 10
           resources:
             requests:
-              cpu: 50m
+              cpu: 100m # basis perhitungan HPA (target 60%)
               memory: 32Mi
             limits:
               cpu: 500m

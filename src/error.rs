@@ -11,6 +11,14 @@ pub enum ApiError {
     NotFound(String),
     BadRequest(String),
     Conflict(String),
+    /// Kegagalan internal (mis. database). Detail hanya dicatat di log, tidak dikirim ke klien.
+    Internal(String),
+}
+
+impl From<sqlx::Error> for ApiError {
+    fn from(err: sqlx::Error) -> Self {
+        ApiError::Internal(err.to_string())
+    }
 }
 
 impl IntoResponse for ApiError {
@@ -19,6 +27,13 @@ impl IntoResponse for ApiError {
             ApiError::NotFound(m) => (StatusCode::NOT_FOUND, m),
             ApiError::BadRequest(m) => (StatusCode::BAD_REQUEST, m),
             ApiError::Conflict(m) => (StatusCode::CONFLICT, m),
+            ApiError::Internal(detail) => {
+                tracing::error!(%detail, "kesalahan internal");
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "terjadi kesalahan pada server, coba lagi".to_string(),
+                )
+            }
         };
         (status, Json(json!({ "error": message }))).into_response()
     }

@@ -1,19 +1,19 @@
 use serde::Serialize;
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, sqlx::FromRow)]
 pub struct Product {
-    pub id: u32,
-    pub name: &'static str,
-    pub category: &'static str,
-    pub description: &'static str,
-    pub emoji: &'static str,
+    pub id: i32,
+    pub name: String,
+    pub category: String,
+    pub description: String,
+    pub emoji: String,
     /// Harga dalam Rupiah (tanpa desimal).
-    pub price: u64,
+    pub price: i64,
     pub rating: f32,
-    pub stock: u32,
+    pub stock: i32,
 }
 
-/// Katalog awal. Disimpan in-memory supaya demo bisa jalan tanpa database.
+/// Katalog awal: di-seed ke Postgres saat startup, atau dipakai langsung oleh store in-memory.
 pub fn seed() -> Vec<Product> {
     vec![
         product(
@@ -141,21 +141,21 @@ pub fn seed() -> Vec<Product> {
 
 #[allow(clippy::too_many_arguments)]
 fn product(
-    id: u32,
-    name: &'static str,
-    category: &'static str,
-    description: &'static str,
-    emoji: &'static str,
-    price: u64,
+    id: i32,
+    name: &str,
+    category: &str,
+    description: &str,
+    emoji: &str,
+    price: i64,
     rating: f32,
-    stock: u32,
+    stock: i32,
 ) -> Product {
     Product {
         id,
-        name,
-        category,
-        description,
-        emoji,
+        name: name.into(),
+        category: category.into(),
+        description: description.into(),
+        emoji: emoji.into(),
         price,
         rating,
         stock,

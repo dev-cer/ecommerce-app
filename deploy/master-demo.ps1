@@ -44,6 +44,13 @@ function Invoke-Native([string]$Description, [scriptblock]$Command) {
     if ($LASTEXITCODE -ne 0) { throw "$Description gagal (exit code $LASTEXITCODE)." }
 }
 
+# Perintah native yang boleh gagal (cek status/ambil nilai). ErrorActionPreference lokal "Continue"
+# mencegah Windows PowerShell 5.1 melempar NativeCommandError saat kubectl menulis ke stderr.
+function Invoke-Quiet([scriptblock]$Command) {
+    $ErrorActionPreference = "Continue"
+    & $Command 2>$null
+}
+
 # Menulis file sementara tanpa BOM (Out-File di PowerShell 5.1 menambah BOM yang bisa merusak YAML/JSON).
 function New-TempFile([string]$Content, [string]$Extension = ".yaml") {
     $path = Join-Path ([IO.Path]::GetTempPath()) ([IO.Path]::GetRandomFileName() + $Extension)
@@ -96,14 +103,22 @@ function Wait-Until([string]$Description, [int]$TimeoutSeconds, [scriptblock]$Co
     throw "Timeout menunggu $Description."
 }
 
+# Password alfanumerik (aman dipakai di URL koneksi tanpa escaping).
+function New-RandomPassword([int]$Length = 32) {
+    $chars = [char[]]"ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789"
+    $bytes = New-Object byte[] $Length
+    [Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($bytes)
+    return -join ($bytes | ForEach-Object { $chars[$_ % $chars.Length] })
+}
+
 function Get-SecretValue([string]$Namespace, [string]$Name, [string]$Key) {
-    $encoded = kubectl get secret $Name -n $Namespace -o "jsonpath={.data.$Key}" 2>$null
+    $encoded = Invoke-Quiet { kubectl get secret $Name -n $Namespace -o "jsonpath={.data.$Key}" }
     if (-not $encoded) { return "<belum tersedia>" }
     return [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($encoded))
 }
 
 function Get-ServiceAddress([string]$Namespace, [string]$Name, [string]$Scheme = "http", [string]$Port = "") {
-    $ingress = kubectl get svc $Name -n $Namespace -o "jsonpath={.status.loadBalancer.ingress[0]['ip','hostname']}" 2>$null
+    $ingress = Invoke-Quiet { kubectl get svc $Name -n $Namespace -o "jsonpath={.status.loadBalancer.ingress[0]['ip','hostname']}" }
     if (-not $ingress) { return "<pending> (cek: kubectl get svc $Name -n $Namespace)" }
     return "${Scheme}://$ingress$(if ($Port) { ":$Port" })"
 }
@@ -134,10 +149,10 @@ try {
         throw "Output 'cluster_name' tidak ditemukan. Tambahkan: output ""cluster_name"" { value = civo_kubernetes_cluster.<nama>.name }"
     }
     Invoke-Native "Mengambil kubeconfig" { civo kubernetes config $clusterName --save }
-    kubectl config use-context $clusterName 2>$null | Out-Null
+    Invoke-Quiet { kubectl config use-context $clusterName } | Out-Null
 
     Wait-Until "semua node Ready" 600 {
-        $nodes = kubectl get nodes --no-headers 2>$null
+        $nodes = Invoke-Quiet { kubectl get nodes --no-headers }
         $nodes -and -not ($nodes | Where-Object { $_ -notmatch '\sReady\s' })
     }
     Write-Done "Act -1 selesai: klaster '$clusterName' siap dan terhubung."
@@ -181,6 +196,28 @@ try {
     # Pod aplikasi menarik image privat dari GHCR.
     Set-RegistrySecret "default"
 
+    # Kredensial PostgreSQL dibuat SEKALI saja: Postgres hanya membaca POSTGRES_PASSWORD saat volume
+    # pertama kali diinisialisasi, jadi mengganti password di run berikutnya akan memutus aplikasi.
+    Invoke-Quiet { kubectl get secret postgres-credentials -n default } | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        $dbPassword = New-RandomPassword
+        Invoke-Native "Membuat secret postgres-credentials" {
+            kubectl create secret generic postgres-credentials -n default `
+                --from-literal=username=nusamart --from-literal=password=$dbPassword --from-literal=database=nusamart
+        }
+        Write-Info "secret postgres-credentials dibuat (password acak 32 karakter)."
+    } else {
+        Write-Info "secret postgres-credentials sudah ada, dipakai ulang."
+    }
+
+    # HPA butuh metrics-server (k3s di Civo biasanya sudah menyertakannya).
+    Invoke-Quiet { kubectl get apiservice v1beta1.metrics.k8s.io } | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        Invoke-Native "Install metrics-server" {
+            kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml
+        }
+    }
+
     Invoke-KubectlApply "Membuat ArgoCD Application" @"
 apiVersion: argoproj.io/v1alpha1
 kind: Application
@@ -207,7 +244,7 @@ spec:
         factor: 2
         maxDuration: 5m
 "@
-    Write-Done "Act 1 selesai: ArgoCD sinkron dengan folder k8s/ (image muncul setelah build Jenkins pertama)."
+    Write-Done "Act 1 selesai: ArgoCD menyinkronkan aplikasi + PostgreSQL + HPA dari folder k8s/ (image muncul setelah build Jenkins pertama)."
 
     # ---------------------------------------------------------
     # ACT 2: CI & DevSecOps - Jenkins
@@ -343,5 +380,6 @@ Write-Host "  1. Ubah kode (mis. judul hero di static/index.html), commit & push
 Write-Host "  2. Jenkins: lint + unit/security test + Trivy -> ZAP (DAST) + k6 -> Kaniko -> Trivy image -> update manifest."
 Write-Host "  3. ArgoCD sync otomatis -> rolling update tanpa downtime; footer storefront menampilkan build baru."
 Write-Host "  4. Checkout beberapa order -> grafik order & omzet di Grafana ikut naik."
-Write-Host "  5. Stress test: ./deploy/stress-test.ps1 -Profile stress (atau spike) -> lihat RPS & latensi di Grafana."
+Write-Host "  5. Stress test: ./deploy/stress-test.ps1 -Profile stress (atau spike) -> RPS, latensi & jumlah pod naik di Grafana."
+Write-Host "     Pantau autoscaling: kubectl get hpa ecommerce-rust -w   |   refresh storefront: nama pod di footer berganti."
 Write-Host "(Alamat yang masih <pending> biasanya muncul 1-2 menit kemudian.)" -ForegroundColor DarkGray

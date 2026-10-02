@@ -28,6 +28,13 @@ function Invoke-Native([string]$Description, [scriptblock]$Command) {
     if ($LASTEXITCODE -ne 0) { throw "$Description gagal (exit code $LASTEXITCODE)." }
 }
 
+# Perintah native yang boleh gagal (cek status/ambil nilai). ErrorActionPreference lokal "Continue"
+# mencegah Windows PowerShell 5.1 melempar NativeCommandError saat kubectl menulis ke stderr.
+function Invoke-Quiet([scriptblock]$Command) {
+    $ErrorActionPreference = "Continue"
+    & $Command 2>$null
+}
+
 try {
     $scriptPath = Join-Path $PSScriptRoot "../tests/load/stress.js"
     if (-not (Test-Path $scriptPath)) { throw "Script k6 tidak ditemukan: $scriptPath" }
@@ -80,10 +87,11 @@ spec:
     try { Invoke-Native "Menjalankan job k6" { kubectl apply -f $file } } finally { Remove-Item $file -ErrorAction SilentlyContinue }
 
     Write-Host "⏳ Menunggu pod k6 berjalan... (buka Grafana → dashboard 'NusaMart · Live Demo')" -ForegroundColor DarkGray
+    Write-Host "   Di terminal lain: kubectl get hpa ecommerce-rust -w  → lihat replika bertambah saat beban naik." -ForegroundColor DarkGray
     $deadline = (Get-Date).AddMinutes(3)
     do {
         Start-Sleep -Seconds 3
-        $phase = kubectl get pods -n $Namespace -l job-name=$JobName -o "jsonpath={.items[0].status.phase}" 2>$null
+        $phase = Invoke-Quiet { kubectl get pods -n $Namespace -l job-name=$JobName -o "jsonpath={.items[0].status.phase}" }
         if ((Get-Date) -gt $deadline) { throw "Pod k6 tidak kunjung berjalan (phase: $phase)." }
     } while (-not $phase -or $phase -eq "Pending")
 
@@ -93,10 +101,12 @@ spec:
     $deadline = (Get-Date).AddSeconds(60)
     do {
         Start-Sleep -Seconds 2
-        $succeeded = kubectl get job $JobName -n $Namespace -o "jsonpath={.status.succeeded}" 2>$null
-        $failed = kubectl get job $JobName -n $Namespace -o "jsonpath={.status.failed}" 2>$null
+        $succeeded = Invoke-Quiet { kubectl get job $JobName -n $Namespace -o "jsonpath={.status.succeeded}" }
+        $failed = Invoke-Quiet { kubectl get job $JobName -n $Namespace -o "jsonpath={.status.failed}" }
     } while (-not $succeeded -and -not $failed -and (Get-Date) -lt $deadline)
 
+    Write-Host ""
+    Invoke-Quiet { kubectl get hpa ecommerce-rust -n default }
     if ($succeeded -eq "1") {
         Write-Host "`n✅ Semua threshold k6 terpenuhi: aplikasi lolos profil '$LoadProfile'." -ForegroundColor Green
     } else {
