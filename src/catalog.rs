@@ -1,0 +1,163 @@
+use serde::Serialize;
+
+#[derive(Debug, Clone, Serialize)]
+pub struct Product {
+    pub id: u32,
+    pub name: &'static str,
+    pub category: &'static str,
+    pub description: &'static str,
+    pub emoji: &'static str,
+    /// Harga dalam Rupiah (tanpa desimal).
+    pub price: u64,
+    pub rating: f32,
+    pub stock: u32,
+}
+
+/// Katalog awal. Disimpan in-memory supaya demo bisa jalan tanpa database.
+pub fn seed() -> Vec<Product> {
+    vec![
+        product(
+            1,
+            "Kopi Gayo Arabika 250g",
+            "Makanan",
+            "Single origin Aceh, notes cokelat & rempah.",
+            "☕",
+            89_000,
+            4.9,
+            24,
+        ),
+        product(
+            2,
+            "Batik Tulis Pekalongan",
+            "Fashion",
+            "Kemeja batik tulis motif Jlamprang, katun primisima.",
+            "👔",
+            425_000,
+            4.8,
+            8,
+        ),
+        product(
+            3,
+            "Earbuds Nirkabel Pro",
+            "Elektronik",
+            "ANC, baterai 30 jam, tahan air IPX5.",
+            "🎧",
+            649_000,
+            4.6,
+            15,
+        ),
+        product(
+            4,
+            "Sambal Roa Manado",
+            "Makanan",
+            "Ikan roa asap, pedas nampol, tanpa pengawet.",
+            "🌶️",
+            55_000,
+            4.9,
+            40,
+        ),
+        product(
+            5,
+            "Tas Rotan Bali",
+            "Fashion",
+            "Anyaman rotan tangan, tali kulit asli.",
+            "👜",
+            275_000,
+            4.7,
+            12,
+        ),
+        product(
+            6,
+            "Smartwatch Fit 2",
+            "Elektronik",
+            "GPS, SpO₂, layar AMOLED 1.4 inci.",
+            "⌚",
+            899_000,
+            4.5,
+            10,
+        ),
+        product(
+            7,
+            "Teh Melati Slawi",
+            "Makanan",
+            "Teh hijau wangi melati, 100 kantong.",
+            "🍵",
+            32_000,
+            4.6,
+            60,
+        ),
+        product(
+            8,
+            "Sneakers Kanvas Lokal",
+            "Fashion",
+            "Sol karet vulkanisir, handmade Bandung.",
+            "👟",
+            349_000,
+            4.7,
+            18,
+        ),
+        product(
+            9,
+            "Keyboard Mekanik 75%",
+            "Elektronik",
+            "Hot-swap, switch tactile, RGB.",
+            "⌨️",
+            1_150_000,
+            4.8,
+            6,
+        ),
+        product(
+            10,
+            "Tanaman Monstera Mini",
+            "Rumah",
+            "Siap tanam dengan pot keramik putih.",
+            "🪴",
+            120_000,
+            4.6,
+            14,
+        ),
+        product(
+            11,
+            "Lilin Aromaterapi Sereh",
+            "Rumah",
+            "Soy wax, wangi sereh & kayu manis.",
+            "🕯️",
+            79_000,
+            4.8,
+            30,
+        ),
+        product(
+            12,
+            "Mug Gerabah Kasongan",
+            "Rumah",
+            "Gerabah glasir biru, 350 ml.",
+            "🍶",
+            65_000,
+            4.5,
+            25,
+        ),
+    ]
+}
+
+#[allow(clippy::too_many_arguments)]
+fn product(
+    id: u32,
+    name: &'static str,
+    category: &'static str,
+    description: &'static str,
+    emoji: &'static str,
+    price: u64,
+    rating: f32,
+    stock: u32,
+) -> Product {
+    Product {
+        id,
+        name,
+        category,
+        description,
+        emoji,
+        price,
+        rating,
+        stock,
+    }
+}

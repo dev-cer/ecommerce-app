@@ -1,0 +1,321 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NusaMart · E-commerce Demo</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🛒</text></svg>">
+<style>
+  :root {
+    --bg: #f6f5f2; --surface: #ffffff; --ink: #1b1b1f; --muted: #6b6b76;
+    --line: #e7e5e0; --brand: #e4572e; --brand-ink: #ffffff; --accent: #17a398;
+    --shadow: 0 1px 2px rgba(0,0,0,.04), 0 8px 24px rgba(0,0,0,.06);
+    --radius: 16px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #121214; --surface: #1c1c20; --ink: #f2f2f4; --muted: #9a9aa6;
+      --line: #2b2b31; --shadow: 0 1px 2px rgba(0,0,0,.3), 0 8px 24px rgba(0,0,0,.35);
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 15px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  button { font: inherit; cursor: pointer; }
+  .wrap { max-width: 1120px; margin: 0 auto; padding: 0 16px; }
+
+  header {
+    position: sticky; top: 0; z-index: 10;
+    background: color-mix(in srgb, var(--bg) 85%, transparent);
+    backdrop-filter: blur(10px); border-bottom: 1px solid var(--line);
+  }
+  .bar { display: flex; align-items: center; gap: 12px; height: 64px; }
+  .logo { font-weight: 800; font-size: 20px; letter-spacing: -.02em; }
+  .logo span { color: var(--brand); }
+  .search {
+    flex: 1; max-width: 420px; margin-left: auto; padding: 10px 14px;
+    border: 1px solid var(--line); border-radius: 999px; background: var(--surface); color: var(--ink);
+  }
+  .cart-btn {
+    position: relative; border: 0; background: var(--ink); color: var(--bg);
+    padding: 10px 16px; border-radius: 999px; font-weight: 600;
+  }
+  .badge {
+    position: absolute; top: -6px; right: -6px; min-width: 22px; height: 22px; padding: 0 6px;
+    border-radius: 999px; background: var(--brand); color: var(--brand-ink);
+    font-size: 12px; display: grid; place-items: center;
+  }
+  .badge:empty { display: none; }
+  .badge.bump { animation: bump .35s ease; }
+  @keyframes bump { 50% { transform: scale(1.35); } }
+
+  .hero {
+    margin: 24px 0; padding: 36px 32px; border-radius: 24px; color: #fff;
+    background: linear-gradient(120deg, #e4572e 0%, #f3a712 55%, #17a398 100%);
+    display: grid; grid-template-columns: 1.4fr 1fr; gap: 24px; align-items: center;
+  }
+  .hero h1 { margin: 0 0 8px; font-size: clamp(26px, 4vw, 40px); line-height: 1.1; letter-spacing: -.03em; }
+  .hero p { margin: 0; opacity: .92; max-width: 46ch; }
+  .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+  .stat { background: rgba(255,255,255,.18); border-radius: 14px; padding: 12px; text-align: center; }
+  .stat b { display: block; font-size: 22px; font-variant-numeric: tabular-nums; }
+  .stat small { opacity: .9; }
+
+  .chips { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 20px; }
+  .chip {
+    border: 1px solid var(--line); background: var(--surface); color: var(--ink);
+    padding: 8px 14px; border-radius: 999px;
+  }
+  .chip.active { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 18px; padding-bottom: 48px; }
+  .card {
+    background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius);
+    overflow: hidden; display: flex; flex-direction: column; box-shadow: var(--shadow);
+    transition: transform .2s ease, box-shadow .2s ease; animation: rise .4s ease both;
+  }
+  .card:hover { transform: translateY(-4px); }
+  @keyframes rise { from { opacity: 0; transform: translateY(12px); } }
+  .thumb {
+    aspect-ratio: 4/3; display: grid; place-items: center; font-size: 72px;
+    background: radial-gradient(circle at 30% 30%, color-mix(in srgb, var(--brand) 14%, var(--surface)), var(--surface));
+  }
+  .body { padding: 14px 16px 16px; display: flex; flex-direction: column; gap: 6px; flex: 1; }
+  .cat { font-size: 12px; color: var(--accent); font-weight: 700; text-transform: uppercase; letter-spacing: .06em; }
+  .name { font-weight: 700; }
+  .desc { color: var(--muted); font-size: 13px; flex: 1; }
+  .meta { display: flex; justify-content: space-between; color: var(--muted); font-size: 13px; }
+  .row { display: flex; align-items: center; justify-content: space-between; margin-top: 6px; }
+  .price { font-weight: 800; font-size: 17px; }
+  .add {
+    border: 0; background: var(--brand); color: var(--brand-ink);
+    padding: 8px 14px; border-radius: 10px; font-weight: 600; white-space: nowrap;
+  }
+  .add:disabled { background: var(--line); color: var(--muted); cursor: not-allowed; }
+  .empty { grid-column: 1/-1; text-align: center; color: var(--muted); padding: 48px 0; }
+
+  .drawer-bg { position: fixed; inset: 0; background: rgba(0,0,0,.4); opacity: 0; pointer-events: none; transition: opacity .2s; z-index: 20; }
+  .drawer {
+    position: fixed; top: 0; right: 0; height: 100%; width: min(420px, 100%); z-index: 21;
+    background: var(--surface); transform: translateX(100%); transition: transform .25s ease;
+    display: flex; flex-direction: column; border-left: 1px solid var(--line);
+  }
+  .open .drawer-bg { opacity: 1; pointer-events: auto; }
+  .open .drawer { transform: none; }
+  .drawer h2 { margin: 0; padding: 20px; border-bottom: 1px solid var(--line); font-size: 18px; display: flex; justify-content: space-between; }
+  .drawer h2 button { border: 0; background: none; color: var(--muted); font-size: 20px; }
+  .lines { flex: 1; overflow: auto; padding: 8px 20px; }
+  .line { display: grid; grid-template-columns: 44px 1fr auto; gap: 12px; align-items: center; padding: 12px 0; border-bottom: 1px solid var(--line); }
+  .line .e { font-size: 30px; }
+  .qty { display: flex; align-items: center; gap: 6px; }
+  .qty button { width: 28px; height: 28px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); }
+  .checkout { padding: 20px; border-top: 1px solid var(--line); display: grid; gap: 10px; }
+  .checkout input { padding: 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); font: inherit; }
+  .total { display: flex; justify-content: space-between; font-weight: 800; font-size: 18px; }
+  .pay { border: 0; padding: 14px; border-radius: 12px; background: var(--accent); color: #fff; font-weight: 700; }
+  .pay:disabled { opacity: .5; cursor: not-allowed; }
+
+  .toast {
+    position: fixed; left: 50%; bottom: 24px; transform: translate(-50%, 120px); z-index: 30;
+    background: var(--ink); color: var(--bg); padding: 12px 18px; border-radius: 12px;
+    box-shadow: var(--shadow); transition: transform .3s ease; max-width: calc(100% - 32px);
+  }
+  .toast.show { transform: translate(-50%, 0); }
+
+  footer { color: var(--muted); font-size: 13px; text-align: center; padding: 24px 0 40px; }
+  footer code { background: var(--surface); border: 1px solid var(--line); padding: 2px 6px; border-radius: 6px; }
+
+  @media (max-width: 720px) {
+    .hero { grid-template-columns: 1fr; padding: 24px 20px; }
+    .search { display: none; }
+    .bar .logo { margin-right: auto; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <div class="wrap bar">
+    <div class="logo">Nusa<span>Mart</span></div>
+    <input id="search" class="search" type="search" placeholder="Cari kopi, batik, keyboard…">
+    <button id="cartBtn" class="cart-btn">🛒 Keranjang <span id="badge" class="badge"></span></button>
+  </div>
+</header>
+
+<main class="wrap">
+  <section class="hero">
+    <div>
+      <h1>Produk lokal pilihan,<br>diantar secepat sprint.</h1>
+      <p>Demo storefront yang ditenagai Rust + Axum. Stok, order, dan statistik diperbarui langsung dari API.</p>
+    </div>
+    <div class="stats">
+      <div class="stat"><b id="sOrders">0</b><small>Order</small></div>
+      <div class="stat"><b id="sItems">0</b><small>Item terjual</small></div>
+      <div class="stat"><b id="sRevenue">0</b><small>Omzet</small></div>
+    </div>
+  </section>
+
+  <div id="chips" class="chips"></div>
+  <div id="grid" class="grid"></div>
+</main>
+
+<footer>
+  API: <code>GET /api/products</code> · <code>POST /api/orders</code> · <code>GET /api/stats</code> · <code>GET /health</code>
+</footer>
+
+<div id="cart">
+  <div class="drawer-bg" data-close></div>
+  <aside class="drawer" aria-label="Keranjang">
+    <h2>Keranjang <button data-close aria-label="Tutup">✕</button></h2>
+    <div id="lines" class="lines"></div>
+    <form id="checkout" class="checkout">
+      <div class="total"><span>Total</span><span id="total">Rp0</span></div>
+      <input id="customer" placeholder="Nama pembeli" required>
+      <button id="pay" class="pay" type="submit">Bayar sekarang</button>
+    </form>
+  </aside>
+</div>
+
+<div id="toast" class="toast"></div>
+
+<script>
+const rupiah = n => "Rp" + n.toLocaleString("id-ID");
+const compact = n => n >= 1e6 ? "Rp" + (n / 1e6).toFixed(1).replace(".", ",") + " jt" : rupiah(n);
+const $ = id => document.getElementById(id);
+
+const state = { products: [], category: "Semua", query: "", cart: new Map() };
+
+async function api(path, options) {
+  const res = await fetch(path, { headers: { "Content-Type": "application/json" }, ...options });
+  const body = await res.json();
+  if (!res.ok) throw new Error(body.error || "Terjadi kesalahan");
+  return body;
+}
+
+async function loadProducts() {
+  state.products = await api("/api/products");
+  renderChips();
+  renderGrid();
+}
+
+async function loadStats() {
+  const s = await api("/api/stats");
+  $("sOrders").textContent = s.orders;
+  $("sItems").textContent = s.items_sold;
+  $("sRevenue").textContent = compact(s.revenue);
+}
+
+function renderChips() {
+  const cats = ["Semua", ...new Set(state.products.map(p => p.category))];
+  $("chips").innerHTML = cats.map(c =>
+    `<button class="chip ${c === state.category ? "active" : ""}" data-cat="${c}">${c}</button>`).join("");
+}
+
+function renderGrid() {
+  const q = state.query.toLowerCase();
+  const items = state.products.filter(p =>
+    (state.category === "Semua" || p.category === state.category) &&
+    (!q || p.name.toLowerCase().includes(q) || p.description.toLowerCase().includes(q)));
+
+  $("grid").innerHTML = items.length ? items.map((p, i) => {
+    const left = p.stock - (state.cart.get(p.id) || 0);
+    return `
+      <article class="card" style="animation-delay:${i * 40}ms">
+        <div class="thumb">${p.emoji}</div>
+        <div class="body">
+          <div class="cat">${p.category}</div>
+          <div class="name">${p.name}</div>
+          <div class="desc">${p.description}</div>
+          <div class="meta"><span>⭐ ${p.rating.toFixed(1)}</span><span>${left > 0 ? `Stok ${left}` : "Habis"}</span></div>
+          <div class="row">
+            <span class="price">${rupiah(p.price)}</span>
+            <button class="add" data-add="${p.id}" ${left > 0 ? "" : "disabled"}>+ Tambah</button>
+          </div>
+        </div>
+      </article>`;
+  }).join("") : `<div class="empty">Produk tidak ditemukan 🔍</div>`;
+}
+
+function renderCart() {
+  const entries = [...state.cart].map(([id, qty]) => ({ p: state.products.find(p => p.id === id), qty }));
+  const count = entries.reduce((n, e) => n + e.qty, 0);
+  const total = entries.reduce((n, e) => n + e.p.price * e.qty, 0);
+
+  const badge = $("badge");
+  badge.textContent = count || "";
+  badge.classList.remove("bump"); void badge.offsetWidth; badge.classList.add("bump");
+
+  $("total").textContent = rupiah(total);
+  $("pay").disabled = count === 0;
+  $("lines").innerHTML = entries.length ? entries.map(({ p, qty }) => `
+    <div class="line">
+      <div class="e">${p.emoji}</div>
+      <div><div class="name">${p.name}</div><small>${rupiah(p.price * qty)}</small></div>
+      <div class="qty">
+        <button data-dec="${p.id}">−</button><b>${qty}</b><button data-inc="${p.id}">+</button>
+      </div>
+    </div>`).join("") : `<div class="empty">Keranjang masih kosong</div>`;
+}
+
+function changeQty(id, delta) {
+  const p = state.products.find(p => p.id === id);
+  const next = Math.min((state.cart.get(id) || 0) + delta, p.stock);
+  next > 0 ? state.cart.set(id, next) : state.cart.delete(id);
+  renderCart();
+  renderGrid();
+}
+
+let toastTimer;
+function toast(msg) {
+  const t = $("toast");
+  t.textContent = msg;
+  t.classList.add("show");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.remove("show"), 3200);
+}
+
+const toggleCart = open => $("cart").classList.toggle("open", open);
+
+document.addEventListener("click", e => {
+  const t = e.target.closest("button, [data-close]");
+  if (!t) return;
+  if (t.dataset.cat) { state.category = t.dataset.cat; renderChips(); renderGrid(); }
+  if (t.dataset.add) { changeQty(+t.dataset.add, 1); toast("Ditambahkan ke keranjang ✨"); }
+  if (t.dataset.inc) changeQty(+t.dataset.inc, 1);
+  if (t.dataset.dec) changeQty(+t.dataset.dec, -1);
+  if ("close" in t.dataset) toggleCart(false);
+  if (t.id === "cartBtn") toggleCart(true);
+});
+
+$("search").addEventListener("input", e => { state.query = e.target.value; renderGrid(); });
+document.addEventListener("keydown", e => e.key === "Escape" && toggleCart(false));
+
+$("checkout").addEventListener("submit", async e => {
+  e.preventDefault();
+  $("pay").disabled = true;
+  try {
+    const order = await api("/api/orders", {
+      method: "POST",
+      body: JSON.stringify({
+        customer: $("customer").value,
+        items: [...state.cart].map(([product_id, quantity]) => ({ product_id, quantity })),
+      }),
+    });
+    state.cart.clear();
+    toggleCart(false);
+    toast(`🎉 Order ${order.id} berhasil · ${rupiah(order.total)}`);
+    await Promise.all([loadProducts(), loadStats()]);
+  } catch (err) {
+    toast("⚠️ " + err.message);
+  } finally {
+    renderCart();
+  }
+});
+
+loadProducts().then(renderCart);
+loadStats();
+setInterval(loadStats, 5000);
+</script>
+</body>
+</html>
