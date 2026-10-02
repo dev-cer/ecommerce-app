@@ -1,5 +1,6 @@
 // NusaMart CI/DevSecOps pipeline
-// Lint & scan → build image (Kaniko) → scan image (Trivy) → update manifest k8s/ → ArgoCD sync.
+// Lint + test & SCA/secret scan → DAST (ZAP) + load test (k6) pada server sementara di pod
+// → build image (Kaniko) → scan image (Trivy) → update manifest k8s/ → ArgoCD sync.
 //
 // Kebutuhan di namespace Jenkins (dibuat oleh deploy/master-demo.ps1):
 //   - secret docker-registry `ghcr-creds`  : push image ke GHCR
@@ -24,6 +25,17 @@ spec:
       volumeMounts:
         - name: docker-config
           mountPath: /kaniko/.docker
+    - name: zap
+      image: ghcr.io/zaproxy/zaproxy:stable
+      command: ["sleep"]
+      args: ["infinity"]
+      volumeMounts:
+        - name: zap-wrk
+          mountPath: /zap/wrk
+    - name: k6
+      image: grafana/k6:2.3.0
+      command: ["sleep"]
+      args: ["infinity"]
     - name: trivy
       image: aquasec/trivy:0.74.0
       command: ["sleep"]
@@ -35,6 +47,8 @@ spec:
         - name: docker-config
           mountPath: /kaniko/.docker
   volumes:
+    - name: zap-wrk
+      emptyDir: {}
     - name: docker-config
       secret:
         secretName: ghcr-creds
@@ -54,6 +68,8 @@ spec:
     IMAGE      = 'ghcr.io/dev-cer/ecommerce-app'
     GIT_REPO   = 'github.com/dev-cer/ecommerce-app.git'
     MANIFEST   = 'k8s/deployment.yaml'
+    // Semua container di pod berbagi network, jadi ZAP & k6 bisa menembak server sementara via localhost.
+    TEST_URL   = 'http://localhost:18080'
   }
 
   stages {
@@ -76,21 +92,67 @@ spec:
     stage('Quality & Security Gate') {
       when { expression { env.SKIP_CI != 'true' } }
       parallel {
-        stage('Lint (fmt + clippy)') {
+        stage('Lint & Unit/Security Tests') {
           steps {
             container('rust') {
               sh '''
+                mkdir -p reports && chmod 777 reports
                 rustup component add rustfmt clippy
                 cargo fmt --check
-                cargo clippy --locked -- -D warnings
+                cargo clippy --all-targets --locked -- -D warnings
+                cargo test --locked
+                cargo build --locked
               '''
             }
           }
         }
-        stage('Secret & Dependency Scan') {
+        stage('SCA & Secret Scan') {
           steps {
             container('trivy') {
-              sh 'trivy fs --scanners vuln,secret --severity HIGH,CRITICAL --exit-code 1 --skip-dirs target --no-progress .'
+              sh 'trivy fs --scanners vuln,secret --severity HIGH,CRITICAL --exit-code 1 --skip-dirs target --skip-dirs reports --no-progress .'
+            }
+          }
+        }
+      }
+    }
+
+    stage('DAST & Load Test') {
+      when { expression { env.SKIP_CI != 'true' } }
+      stages {
+        stage('Start Ephemeral Server') {
+          steps {
+            container('rust') {
+              sh '''
+                JENKINS_NODE_COOKIE=dontKillMe setsid nohup env PORT=18080 APP_VERSION="$TAG" RESTOCK_INTERVAL_SECS=0 \
+                  ./target/debug/app-repo > reports/app.log 2>&1 &
+                for i in $(seq 1 30); do
+                  wget -qO- "$TEST_URL/health" && exit 0
+                  sleep 1
+                done
+                cat reports/app.log
+                exit 1
+              '''
+            }
+          }
+        }
+        stage('DAST (OWASP ZAP)') {
+          steps {
+            container('zap') {
+              // -I: WARN tidak menggagalkan build; rule penting di .zap/rules.tsv di-set FAIL.
+              sh '''
+                cp .zap/rules.tsv /zap/wrk/
+                status=0
+                zap-baseline.py -t "$TEST_URL" -c rules.tsv -I -r zap-report.html -J zap-report.json || status=$?
+                cp /zap/wrk/zap-report.* reports/ || true
+                exit $status
+              '''
+            }
+          }
+        }
+        stage('Load Test (k6)') {
+          steps {
+            container('k6') {
+              sh 'k6 run -e BASE_URL="$TEST_URL" -e PROFILE=smoke --summary-export reports/k6-summary.json tests/load/stress.js'
             }
           }
         }
@@ -142,6 +204,9 @@ spec:
   }
 
   post {
+    always {
+      archiveArtifacts artifacts: 'reports/**', allowEmptyArchive: true
+    }
     success {
       script {
         if (env.SKIP_CI != 'true') {

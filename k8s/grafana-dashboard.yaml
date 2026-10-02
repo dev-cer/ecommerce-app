@@ -17,22 +17,22 @@ data:
       "timezone": "browser",
       "refresh": "5s",
       "time": {
-        "from": "now-30m",
+        "from": "now-15m",
         "to": "now"
       },
       "schemaVersion": 39,
       "panels": [
         {
-          "id": 1,
+          "id": 2,
           "type": "stat",
-          "title": "Total order",
+          "title": "Request / detik",
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
           },
           "gridPos": {
             "h": 5,
-            "w": 6,
+            "w": 4,
             "x": 0,
             "y": 0
           },
@@ -43,13 +43,13 @@ data:
                 "type": "prometheus",
                 "uid": "prometheus"
               },
-              "expr": "sum(nusamart_orders_total)",
-              "instant": true
+              "expr": "sum(rate(nusamart_http_requests_total[1m]))",
+              "legendFormat": ""
             }
           ],
           "fieldConfig": {
             "defaults": {
-              "unit": "none",
+              "unit": "reqps",
               "color": {
                 "mode": "fixed",
                 "fixedColor": "orange"
@@ -71,17 +71,17 @@ data:
           }
         },
         {
-          "id": 2,
+          "id": 3,
           "type": "stat",
-          "title": "Omzet",
+          "title": "Latensi p95",
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
           },
           "gridPos": {
             "h": 5,
-            "w": 6,
-            "x": 6,
+            "w": 4,
+            "x": 4,
             "y": 0
           },
           "targets": [
@@ -91,16 +91,16 @@ data:
                 "type": "prometheus",
                 "uid": "prometheus"
               },
-              "expr": "sum(nusamart_revenue_rupiah_total)",
-              "instant": true
+              "expr": "histogram_quantile(0.95, sum by (le) (rate(nusamart_http_request_duration_seconds_bucket[1m])))",
+              "legendFormat": ""
             }
           ],
           "fieldConfig": {
             "defaults": {
-              "unit": "prefix:Rp ",
+              "unit": "s",
               "color": {
                 "mode": "fixed",
-                "fixedColor": "green"
+                "fixedColor": "yellow"
               }
             },
             "overrides": []
@@ -119,16 +119,64 @@ data:
           }
         },
         {
-          "id": 3,
+          "id": 4,
           "type": "stat",
-          "title": "Item terjual",
+          "title": "Error 5xx",
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
           },
           "gridPos": {
             "h": 5,
-            "w": 6,
+            "w": 4,
+            "x": 8,
+            "y": 0
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "sum(rate(nusamart_http_requests_total{class=\"5xx\"}[1m])) / clamp_min(sum(rate(nusamart_http_requests_total[1m])), 1e-9)",
+              "legendFormat": ""
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percentunit",
+              "color": {
+                "mode": "fixed",
+                "fixedColor": "red"
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "colorMode": "background",
+            "graphMode": "area",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "textMode": "value"
+          }
+        },
+        {
+          "id": 5,
+          "type": "stat",
+          "title": "Total order",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "h": 5,
+            "w": 4,
             "x": 12,
             "y": 0
           },
@@ -139,8 +187,8 @@ data:
                 "type": "prometheus",
                 "uid": "prometheus"
               },
-              "expr": "sum(nusamart_items_sold_total)",
-              "instant": true
+              "expr": "sum(nusamart_orders_total)",
+              "legendFormat": ""
             }
           ],
           "fieldConfig": {
@@ -167,7 +215,55 @@ data:
           }
         },
         {
-          "id": 4,
+          "id": 6,
+          "type": "stat",
+          "title": "Omzet",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "h": 5,
+            "w": 4,
+            "x": 16,
+            "y": 0
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "sum(nusamart_revenue_rupiah_total)",
+              "legendFormat": ""
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "prefix:Rp ",
+              "color": {
+                "mode": "fixed",
+                "fixedColor": "green"
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "colorMode": "background",
+            "graphMode": "area",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "textMode": "value"
+          }
+        },
+        {
+          "id": 1,
           "type": "stat",
           "title": "Build aktif",
           "datasource": {
@@ -176,8 +272,8 @@ data:
           },
           "gridPos": {
             "h": 5,
-            "w": 6,
-            "x": 18,
+            "w": 4,
+            "x": 20,
             "y": 0
           },
           "targets": [
@@ -188,6 +284,7 @@ data:
                 "uid": "prometheus"
               },
               "expr": "max by (build) (nusamart_build_info)",
+              "legendFormat": "",
               "instant": true,
               "format": "table"
             }
@@ -215,9 +312,9 @@ data:
           }
         },
         {
-          "id": 5,
+          "id": 7,
           "type": "timeseries",
-          "title": "Order per menit",
+          "title": "Traffic per kelas status",
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
@@ -227,6 +324,168 @@ data:
             "w": 12,
             "x": 0,
             "y": 5
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "sum by (class) (rate(nusamart_http_requests_total{class=~\"2xx|4xx|5xx\"}[1m]))",
+              "legendFormat": "{{class}}"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "reqps",
+              "custom": {
+                "fillOpacity": 20,
+                "lineWidth": 2,
+                "showPoints": "never",
+                "stacking": {
+                  "mode": "normal"
+                }
+              }
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "2xx"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "green"
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "4xx"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "orange"
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "5xx"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "red"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "options": {
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom"
+            },
+            "tooltip": {
+              "mode": "multi"
+            }
+          }
+        },
+        {
+          "id": 8,
+          "type": "timeseries",
+          "title": "Latensi (p50 / p95 / p99)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 5
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "histogram_quantile(0.5, sum by (le) (rate(nusamart_http_request_duration_seconds_bucket[1m])))",
+              "legendFormat": "p50"
+            },
+            {
+              "refId": "B",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "histogram_quantile(0.95, sum by (le) (rate(nusamart_http_request_duration_seconds_bucket[1m])))",
+              "legendFormat": "p95"
+            },
+            {
+              "refId": "C",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "histogram_quantile(0.99, sum by (le) (rate(nusamart_http_request_duration_seconds_bucket[1m])))",
+              "legendFormat": "p99"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s",
+              "custom": {
+                "fillOpacity": 20,
+                "lineWidth": 2,
+                "showPoints": "never",
+                "stacking": {
+                  "mode": "none"
+                }
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom"
+            },
+            "tooltip": {
+              "mode": "multi"
+            }
+          }
+        },
+        {
+          "id": 9,
+          "type": "timeseries",
+          "title": "Order per menit",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 8,
+            "x": 0,
+            "y": 13
           },
           "targets": [
             {
@@ -243,9 +502,12 @@ data:
             "defaults": {
               "unit": "none",
               "custom": {
-                "fillOpacity": 25,
+                "fillOpacity": 20,
                 "lineWidth": 2,
-                "showPoints": "never"
+                "showPoints": "never",
+                "stacking": {
+                  "mode": "none"
+                }
               }
             },
             "overrides": []
@@ -261,7 +523,56 @@ data:
           }
         },
         {
-          "id": 6,
+          "id": 10,
+          "type": "timeseries",
+          "title": "Stok tersisa (unit)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 8,
+            "x": 8,
+            "y": 13
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "sum(nusamart_stock_units)",
+              "legendFormat": "stok"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "none",
+              "custom": {
+                "fillOpacity": 20,
+                "lineWidth": 2,
+                "showPoints": "never",
+                "stacking": {
+                  "mode": "none"
+                }
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom"
+            },
+            "tooltip": {
+              "mode": "multi"
+            }
+          }
+        },
+        {
+          "id": 11,
           "type": "timeseries",
           "title": "Omzet per 5 menit",
           "datasource": {
@@ -270,9 +581,9 @@ data:
           },
           "gridPos": {
             "h": 8,
-            "w": 12,
-            "x": 12,
-            "y": 5
+            "w": 8,
+            "x": 16,
+            "y": 13
           },
           "targets": [
             {
@@ -289,9 +600,12 @@ data:
             "defaults": {
               "unit": "prefix:Rp ",
               "custom": {
-                "fillOpacity": 25,
+                "fillOpacity": 20,
                 "lineWidth": 2,
-                "showPoints": "never"
+                "showPoints": "never",
+                "stacking": {
+                  "mode": "none"
+                }
               }
             },
             "overrides": []
@@ -307,7 +621,7 @@ data:
           }
         },
         {
-          "id": 7,
+          "id": 12,
           "type": "timeseries",
           "title": "CPU aplikasi",
           "datasource": {
@@ -318,7 +632,7 @@ data:
             "h": 8,
             "w": 12,
             "x": 0,
-            "y": 13
+            "y": 21
           },
           "targets": [
             {
@@ -327,7 +641,7 @@ data:
                 "type": "prometheus",
                 "uid": "prometheus"
               },
-              "expr": "sum by (pod) (rate(container_cpu_usage_seconds_total{namespace=\"default\",pod=~\"ecommerce-rust-.*\",container=\"app\"}[2m]))",
+              "expr": "sum by (pod) (rate(container_cpu_usage_seconds_total{namespace=\"default\",pod=~\"ecommerce-rust-.*\",container=\"app\"}[1m]))",
               "legendFormat": "{{pod}}"
             }
           ],
@@ -335,9 +649,12 @@ data:
             "defaults": {
               "unit": "cores",
               "custom": {
-                "fillOpacity": 25,
+                "fillOpacity": 20,
                 "lineWidth": 2,
-                "showPoints": "never"
+                "showPoints": "never",
+                "stacking": {
+                  "mode": "none"
+                }
               }
             },
             "overrides": []
@@ -353,7 +670,7 @@ data:
           }
         },
         {
-          "id": 8,
+          "id": 13,
           "type": "timeseries",
           "title": "Memori aplikasi",
           "datasource": {
@@ -364,7 +681,7 @@ data:
             "h": 8,
             "w": 12,
             "x": 12,
-            "y": 13
+            "y": 21
           },
           "targets": [
             {
@@ -381,9 +698,12 @@ data:
             "defaults": {
               "unit": "bytes",
               "custom": {
-                "fillOpacity": 25,
+                "fillOpacity": 20,
                 "lineWidth": 2,
-                "showPoints": "never"
+                "showPoints": "never",
+                "stacking": {
+                  "mode": "none"
+                }
               }
             },
             "overrides": []

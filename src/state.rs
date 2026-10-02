@@ -8,7 +8,13 @@ use serde::{Deserialize, Serialize};
 use crate::{
     catalog::{self, Product},
     error::{ApiError, ApiResult},
+    metrics::HttpMetrics,
 };
+
+/// Batas input untuk mencegah abuse (payload raksasa, overflow jumlah, nama super panjang).
+pub const MAX_CUSTOMER_NAME: usize = 60;
+pub const MAX_ORDER_LINES: usize = 20;
+pub const MAX_QUANTITY: u32 = 99;
 
 #[derive(Clone)]
 pub struct AppState {
@@ -18,6 +24,7 @@ pub struct AppState {
     pub build: Arc<str>,
     /// Nama pod di Kubernetes (env `HOSTNAME`).
     pub instance: Arc<str>,
+    pub http: Arc<HttpMetrics>,
 }
 
 struct Store {
@@ -73,6 +80,7 @@ impl AppState {
             started_at: Instant::now(),
             build: env_or("APP_VERSION", "dev").into(),
             instance: env_or("HOSTNAME", "local").into(),
+            http: Arc::default(),
         }
     }
 
@@ -115,15 +123,32 @@ impl AppState {
         if customer.is_empty() {
             return Err(ApiError::BadRequest("nama pembeli wajib diisi".into()));
         }
+        if customer.chars().count() > MAX_CUSTOMER_NAME {
+            return Err(ApiError::BadRequest(format!(
+                "nama pembeli maksimal {MAX_CUSTOMER_NAME} karakter"
+            )));
+        }
+        if customer.chars().any(char::is_control) {
+            return Err(ApiError::BadRequest(
+                "nama pembeli mengandung karakter tidak valid".into(),
+            ));
+        }
         if req.items.is_empty() {
             return Err(ApiError::BadRequest("keranjang masih kosong".into()));
+        }
+        if req.items.len() > MAX_ORDER_LINES {
+            return Err(ApiError::BadRequest(format!(
+                "maksimal {MAX_ORDER_LINES} baris item per order"
+            )));
         }
 
         let mut store = self.store();
         let mut lines = Vec::with_capacity(req.items.len());
         for item in &req.items {
-            if item.quantity == 0 {
-                return Err(ApiError::BadRequest("jumlah item minimal 1".into()));
+            if !(1..=MAX_QUANTITY).contains(&item.quantity) {
+                return Err(ApiError::BadRequest(format!(
+                    "jumlah item harus 1 sampai {MAX_QUANTITY}"
+                )));
             }
             let product = store
                 .products
@@ -170,6 +195,20 @@ impl AppState {
         store.orders.push(order.clone());
         tracing::info!(order = %order.id, customer = %order.customer, total = order.total, "order baru masuk");
         Ok(order)
+    }
+
+    /// Kembalikan stok tiap produk ke jumlah awal; mengembalikan jumlah unit yang ditambahkan.
+    pub fn restock(&self) -> u32 {
+        let seed = catalog::seed();
+        let mut store = self.store();
+        let mut added = 0;
+        for product in &mut store.products {
+            if let Some(initial) = seed.iter().find(|p| p.id == product.id) {
+                added += initial.stock.saturating_sub(product.stock);
+                product.stock = product.stock.max(initial.stock);
+            }
+        }
+        added
     }
 
     pub fn stats(&self) -> Stats {

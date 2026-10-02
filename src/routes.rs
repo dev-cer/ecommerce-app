@@ -1,18 +1,27 @@
+use std::time::Duration;
+
 use axum::{
     Json, Router,
-    extract::{Path, Query, State},
-    http::StatusCode,
-    response::Html,
+    extract::{DefaultBodyLimit, Path, Query, State},
+    http::{StatusCode, header},
+    middleware,
+    response::{Html, IntoResponse},
     routing::get,
 };
 use serde::Deserialize;
 use serde_json::{Value, json};
+use tower_http::timeout::TimeoutLayer;
 
 use crate::{
     catalog::Product,
     error::ApiResult,
+    metrics, security,
     state::{AppState, Order, OrderRequest, Stats},
 };
+
+/// Ukuran body request maksimum; order terbesar yang valid jauh di bawah ini.
+const MAX_BODY_BYTES: usize = 16 * 1024;
+const REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
 
 pub fn router(state: AppState) -> Router {
     let api = Router::new()
@@ -23,14 +32,47 @@ pub fn router(state: AppState) -> Router {
 
     Router::new()
         .route("/", get(storefront))
+        .route("/app.css", get(stylesheet))
+        .route("/app.js", get(script))
         .route("/health", get(health))
         .route("/metrics", get(metrics))
         .nest("/api", api)
+        .layer(DefaultBodyLimit::max(MAX_BODY_BYTES))
+        .layer(TimeoutLayer::with_status_code(
+            StatusCode::REQUEST_TIMEOUT,
+            REQUEST_TIMEOUT,
+        ))
+        .layer(middleware::from_fn(security::headers))
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            metrics::track,
+        ))
         .with_state(state)
 }
 
 async fn storefront() -> Html<&'static str> {
     Html(include_str!("../static/index.html"))
+}
+
+async fn stylesheet() -> impl IntoResponse {
+    static_asset("text/css; charset=utf-8", include_str!("../static/app.css"))
+}
+
+async fn script() -> impl IntoResponse {
+    static_asset(
+        "text/javascript; charset=utf-8",
+        include_str!("../static/app.js"),
+    )
+}
+
+fn static_asset(content_type: &'static str, body: &'static str) -> impl IntoResponse {
+    (
+        [
+            (header::CONTENT_TYPE, content_type),
+            (header::CACHE_CONTROL, "public, max-age=300"),
+        ],
+        body,
+    )
 }
 
 async fn health(State(state): State<AppState>) -> Json<Value> {
@@ -43,65 +85,8 @@ async fn health(State(state): State<AppState>) -> Json<Value> {
     }))
 }
 
-/// Metrik format Prometheus untuk dashboard Grafana.
 async fn metrics(State(state): State<AppState>) -> String {
-    let s = state.stats();
-    let uptime = state.started_at.elapsed().as_secs();
-    let build_labels = format!(
-        "{{build=\"{}\",version=\"{}\"}}",
-        state.build,
-        env!("CARGO_PKG_VERSION")
-    );
-
-    [
-        (
-            "nusamart_orders_total",
-            "counter",
-            "Jumlah order yang berhasil.",
-            String::new(),
-            s.orders.to_string(),
-        ),
-        (
-            "nusamart_items_sold_total",
-            "counter",
-            "Jumlah item terjual.",
-            String::new(),
-            s.items_sold.to_string(),
-        ),
-        (
-            "nusamart_revenue_rupiah_total",
-            "counter",
-            "Total omzet dalam Rupiah.",
-            String::new(),
-            s.revenue.to_string(),
-        ),
-        (
-            "nusamart_stock_units",
-            "gauge",
-            "Total unit stok tersisa.",
-            String::new(),
-            s.stock_units.to_string(),
-        ),
-        (
-            "nusamart_uptime_seconds",
-            "gauge",
-            "Lama proses berjalan.",
-            String::new(),
-            uptime.to_string(),
-        ),
-        (
-            "nusamart_build_info",
-            "gauge",
-            "Build yang sedang berjalan.",
-            build_labels,
-            "1".into(),
-        ),
-    ]
-    .iter()
-    .map(|(name, kind, help, labels, value)| {
-        format!("# HELP {name} {help}\n# TYPE {name} {kind}\n{name}{labels} {value}\n")
-    })
-    .collect()
+    metrics::render(&state)
 }
 
 #[derive(Deserialize)]

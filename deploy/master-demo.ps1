@@ -340,7 +340,8 @@ foreach ($name in $access.Keys) {
 
 Write-Host "`nSkenario live demo:" -ForegroundColor Cyan
 Write-Host "  1. Ubah kode (mis. judul hero di static/index.html), commit & push ke '$AppBranch'."
-Write-Host "  2. Jenkins: Lint + Secret Scan -> Kaniko build -> Trivy -> update k8s/deployment.yaml."
+Write-Host "  2. Jenkins: lint + unit/security test + Trivy -> ZAP (DAST) + k6 -> Kaniko -> Trivy image -> update manifest."
 Write-Host "  3. ArgoCD sync otomatis -> rolling update tanpa downtime; footer storefront menampilkan build baru."
 Write-Host "  4. Checkout beberapa order -> grafik order & omzet di Grafana ikut naik."
+Write-Host "  5. Stress test: ./deploy/stress-test.ps1 -Profile stress (atau spike) -> lihat RPS & latensi di Grafana."
 Write-Host "(Alamat yang masih <pending> biasanya muncul 1-2 menit kemudian.)" -ForegroundColor DarkGray

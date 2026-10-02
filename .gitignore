@@ -1,4 +1,5 @@
 /target
+/reports
 *.key
 *.pub
 .env

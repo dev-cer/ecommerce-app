@@ -44,17 +44,19 @@ curl -X POST localhost:8080/api/orders \
 | GET    | `/api/orders`         | Daftar order (terbaru dulu)                  |
 | POST   | `/api/orders`         | Buat order — validasi stok, all-or-nothing   |
 | GET    | `/api/stats`          | Ringkasan order, item terjual, omzet         |
-| GET    | `/metrics`            | Metrik Prometheus (order, omzet, build info) |
+| GET    | `/metrics`            | Metrik Prometheus (bisnis, request HTTP, histogram latensi) |
 
 ## CI/CD & GitOps (KCD Bandung 2026)
 
 ```
-git push ─▶ Jenkins ─────────────────────────────────────────────▶ GitHub (k8s/) ─▶ ArgoCD ─▶ Civo K8s
-            ├─ Lint (fmt + clippy)  ┐ paralel                         commit tag          sync     rolling update
-            ├─ Secret & Dep Scan    ┘ (Trivy fs)                      [skip ci]
-            ├─ Build & Push image   (Kaniko → ghcr.io)
-            ├─ Image Scan           (Trivy, gagal jika ada CRITICAL)
-            └─ GitOps: Update Manifest
+git push ─▶ Jenkins ─────────────────────────────────────────────────▶ GitHub (k8s/) ─▶ ArgoCD ─▶ Civo K8s
+            ├─ Lint + unit & security test (cargo)  ┐ paralel             commit tag          sync     rolling update
+            ├─ SCA & secret scan (Trivy fs)         ┘                     [skip ci]
+            ├─ Server sementara di pod ─┬─ DAST (OWASP ZAP baseline)
+            │                           └─ Load test (k6, profil smoke + threshold)
+            ├─ Build & push image (Kaniko → ghcr.io)
+            ├─ Image scan (Trivy, gagal jika ada CRITICAL)
+            └─ GitOps: update manifest
 ```
 
 - `Jenkinsfile` — pipeline di atas. Build image memakai **Kaniko** karena agent Jenkins berjalan di dalam Kubernetes tanpa Docker daemon.
@@ -69,6 +71,29 @@ $env:GITHUB_TOKEN = "<PAT: repo, write:packages>"   # jangan pernah ditulis di s
 
 Footer storefront menampilkan `build <tag> · pod <nama>`, jadi audience bisa melihat versi baru muncul setelah ArgoCD selesai rollout.
 
+## Security testing
+
+| Lapisan | Alat | Yang dicek |
+|---|---|---|
+| Unit/integration test | `cargo test` (`src/tests.rs`) | Header keamanan, validasi input, overflow jumlah, payload raksasa (413), content-type salah (415), fuzzing path/query, order all-or-nothing, **50 order paralel tidak pernah oversell** |
+| SCA & secret | Trivy `fs` | CVE di `Cargo.lock`, token/secret yang ter-commit |
+| DAST | OWASP ZAP baseline | Scan aplikasi yang berjalan; aturan di `.zap/rules.tsv` (CSP, anti-clickjacking, nosniff = FAIL) |
+| Container | Trivy `image` | CVE CRITICAL di image final |
+
+Hardening di aplikasi: Content-Security-Policy ketat (tanpa inline script/style), `X-Frame-Options`, `nosniff`, `Permissions-Policy`, batas body 16 KB, timeout request 10 detik, batas panjang nama, jumlah item, dan baris order. Container berjalan non-root dengan root filesystem read-only.
+
+## Stress test (k6)
+
+```bash
+k6 run -e BASE_URL=http://localhost:8080 -e PROFILE=smoke  tests/load/stress.js   # 30 detik, dipakai di CI
+k6 run -e BASE_URL=http://localhost:8080 -e PROFILE=stress tests/load/stress.js   # naik bertahap ke 300 VU
+k6 run -e BASE_URL=http://localhost:8080 -e PROFILE=spike  tests/load/stress.js   # lonjakan 400 VU
+```
+
+Di klaster (tanpa perlu k6 di laptop): `./deploy/stress-test.ps1 -Profile stress`. Script k6 dijalankan sebagai Job di system-pool, sementara dashboard Grafana menampilkan RPS, latensi p50/p95/p99, traffic per status, stok, dan CPU.
+
+Threshold: error < 1%, p95 baca < 200 ms (smoke) / 500 ms (stress), p95 tulis < 300 / 800 ms. Respons `409` (stok habis) dihitung sebagai perilaku benar, bukan error. Stok otomatis di-restock tiap 60 detik (`RESTOCK_INTERVAL_SECS`, `0` = mati), jadi storefront tetap bisa dipakai setelah stress test.
+
 ## Struktur
 
 ```
@@ -77,11 +102,15 @@ src/
 ├── routes.rs    # definisi route & handler HTTP
 ├── state.rs     # state in-memory: katalog, order, statistik
 ├── catalog.rs   # data produk awal
-└── error.rs     # error API → JSON
-static/
-└── index.html   # storefront (di-embed ke binary saat compile)
+├── error.rs     # error API → JSON
+├── metrics.rs   # metrik Prometheus + middleware latensi
+├── security.rs  # header keamanan (CSP dkk.)
+└── tests.rs     # test fungsional, keamanan & konkurensi
+static/          # storefront: index.html, app.css, app.js (di-embed ke binary)
+tests/load/      # skenario k6
+.zap/            # aturan OWASP ZAP
 k8s/             # manifest GitOps (ArgoCD)
-deploy/          # skrip provisioning demo
+deploy/          # master-demo.ps1 (provisioning) & stress-test.ps1
 Jenkinsfile      # pipeline CI/DevSecOps
 ```
 

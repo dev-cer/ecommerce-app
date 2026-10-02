@@ -2,10 +2,14 @@
 
 mod catalog;
 mod error;
+mod metrics;
 mod routes;
+mod security;
 mod state;
+#[cfg(test)]
+mod tests;
 
-use std::net::SocketAddr;
+use std::{net::SocketAddr, time::Duration};
 
 use tokio::net::TcpListener;
 use tower_http::trace::{DefaultMakeSpan, DefaultOnResponse, TraceLayer};
@@ -33,7 +37,9 @@ async fn main() -> std::io::Result<()> {
     let trace = TraceLayer::new_for_http()
         .make_span_with(DefaultMakeSpan::new().level(Level::INFO))
         .on_response(DefaultOnResponse::new().level(Level::INFO));
-    let app = routes::router(AppState::new()).layer(trace);
+    let state = AppState::new();
+    spawn_restocker(state.clone());
+    let app = routes::router(state).layer(trace);
 
     let listener = TcpListener::bind(addr).await?;
     print_banner(port);
@@ -61,6 +67,29 @@ fn print_banner(port: u16) {
         println!("  │  {row:<w$}│", w = width - 2);
     }
     println!("  ╰{}╯\n", "─".repeat(width));
+}
+
+/// Gudang otomatis: isi ulang stok berkala supaya demo tetap bisa dipakai setelah stress test.
+/// Set `RESTOCK_INTERVAL_SECS=0` untuk mematikan.
+fn spawn_restocker(state: AppState) {
+    let secs: u64 = std::env::var("RESTOCK_INTERVAL_SECS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(60);
+    if secs == 0 {
+        return;
+    }
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(Duration::from_secs(secs));
+        interval.tick().await;
+        loop {
+            interval.tick().await;
+            let added = state.restock();
+            if added > 0 {
+                tracing::info!(units = added, "gudang restock otomatis");
+            }
+        }
+    });
 }
 
 /// Menunggu Ctrl+C atau SIGTERM (dikirim `docker stop`) agar shutdown tidak memutus request.
