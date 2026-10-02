@@ -44,6 +44,30 @@ curl -X POST localhost:8080/api/orders \
 | GET    | `/api/orders`         | Daftar order (terbaru dulu)                  |
 | POST   | `/api/orders`         | Buat order — validasi stok, all-or-nothing   |
 | GET    | `/api/stats`          | Ringkasan order, item terjual, omzet         |
+| GET    | `/metrics`            | Metrik Prometheus (order, omzet, build info) |
+
+## CI/CD & GitOps (KCD Bandung 2026)
+
+```
+git push ─▶ Jenkins ─────────────────────────────────────────────▶ GitHub (k8s/) ─▶ ArgoCD ─▶ Civo K8s
+            ├─ Lint (fmt + clippy)  ┐ paralel                         commit tag          sync     rolling update
+            ├─ Secret & Dep Scan    ┘ (Trivy fs)                      [skip ci]
+            ├─ Build & Push image   (Kaniko → ghcr.io)
+            ├─ Image Scan           (Trivy, gagal jika ada CRITICAL)
+            └─ GitOps: Update Manifest
+```
+
+- `Jenkinsfile` — pipeline di atas. Build image memakai **Kaniko** karena agent Jenkins berjalan di dalam Kubernetes tanpa Docker daemon.
+- `k8s/` — manifest yang disinkronkan ArgoCD: Deployment, Service `ecommerce-rust-svc`, ServiceMonitor, dan dashboard Grafana.
+- `deploy/master-demo.ps1` — provisioning end-to-end: Terraform → ArgoCD → Jenkins (job dibuat otomatis via JCasC) → Prometheus/Grafana.
+
+```powershell
+$env:GITHUB_USER  = "dev-cer"
+$env:GITHUB_TOKEN = "<PAT: repo, write:packages>"   # jangan pernah ditulis di skrip/repo
+./deploy/master-demo.ps1 -TerraformDir ../infra
+```
+
+Footer storefront menampilkan `build <tag> · pod <nama>`, jadi audience bisa melihat versi baru muncul setelah ArgoCD selesai rollout.
 
 ## Struktur
 
@@ -56,6 +80,9 @@ src/
 └── error.rs     # error API → JSON
 static/
 └── index.html   # storefront (di-embed ke binary saat compile)
+k8s/             # manifest GitOps (ArgoCD)
+deploy/          # skrip provisioning demo
+Jenkinsfile      # pipeline CI/DevSecOps
 ```
 
 Data disimpan di memori, jadi restart server = reset demo.

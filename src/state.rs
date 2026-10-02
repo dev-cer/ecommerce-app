@@ -14,6 +14,10 @@ use crate::{
 pub struct AppState {
     inner: Arc<Mutex<Store>>,
     pub started_at: Instant,
+    /// Tag build dari CI (env `APP_VERSION`), tampil di UI agar rollout terlihat oleh audience.
+    pub build: Arc<str>,
+    /// Nama pod di Kubernetes (env `HOSTNAME`).
+    pub instance: Arc<str>,
 }
 
 struct Store {
@@ -56,6 +60,7 @@ pub struct Stats {
     pub revenue: u64,
     pub items_sold: u32,
     pub products: usize,
+    pub stock_units: u32,
 }
 
 impl AppState {
@@ -66,6 +71,8 @@ impl AppState {
                 orders: Vec::new(),
             })),
             started_at: Instant::now(),
+            build: env_or("APP_VERSION", "dev").into(),
+            instance: env_or("HOSTNAME", "local").into(),
         }
     }
 
@@ -177,6 +184,14 @@ impl AppState {
                 .map(|l| l.quantity)
                 .sum(),
             products: store.products.len(),
+            stock_units: store.products.iter().map(|p| p.stock).sum(),
         }
     }
+}
+
+fn env_or(key: &str, default: &str) -> String {
+    std::env::var(key)
+        .ok()
+        .filter(|v| !v.is_empty())
+        .unwrap_or_else(|| default.to_string())
 }

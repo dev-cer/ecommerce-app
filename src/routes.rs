@@ -24,6 +24,7 @@ pub fn router(state: AppState) -> Router {
     Router::new()
         .route("/", get(storefront))
         .route("/health", get(health))
+        .route("/metrics", get(metrics))
         .nest("/api", api)
         .with_state(state)
 }
@@ -36,8 +37,71 @@ async fn health(State(state): State<AppState>) -> Json<Value> {
     Json(json!({
         "status": "ok",
         "version": env!("CARGO_PKG_VERSION"),
+        "build": &*state.build,
+        "instance": &*state.instance,
         "uptime_seconds": state.started_at.elapsed().as_secs(),
     }))
+}
+
+/// Metrik format Prometheus untuk dashboard Grafana.
+async fn metrics(State(state): State<AppState>) -> String {
+    let s = state.stats();
+    let uptime = state.started_at.elapsed().as_secs();
+    let build_labels = format!(
+        "{{build=\"{}\",version=\"{}\"}}",
+        state.build,
+        env!("CARGO_PKG_VERSION")
+    );
+
+    [
+        (
+            "nusamart_orders_total",
+            "counter",
+            "Jumlah order yang berhasil.",
+            String::new(),
+            s.orders.to_string(),
+        ),
+        (
+            "nusamart_items_sold_total",
+            "counter",
+            "Jumlah item terjual.",
+            String::new(),
+            s.items_sold.to_string(),
+        ),
+        (
+            "nusamart_revenue_rupiah_total",
+            "counter",
+            "Total omzet dalam Rupiah.",
+            String::new(),
+            s.revenue.to_string(),
+        ),
+        (
+            "nusamart_stock_units",
+            "gauge",
+            "Total unit stok tersisa.",
+            String::new(),
+            s.stock_units.to_string(),
+        ),
+        (
+            "nusamart_uptime_seconds",
+            "gauge",
+            "Lama proses berjalan.",
+            String::new(),
+            uptime.to_string(),
+        ),
+        (
+            "nusamart_build_info",
+            "gauge",
+            "Build yang sedang berjalan.",
+            build_labels,
+            "1".into(),
+        ),
+    ]
+    .iter()
+    .map(|(name, kind, help, labels, value)| {
+        format!("# HELP {name} {help}\n# TYPE {name} {kind}\n{name}{labels} {value}\n")
+    })
+    .collect()
 }
 
 #[derive(Deserialize)]

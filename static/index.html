@@ -125,6 +125,12 @@
   .toast.show { transform: translate(-50%, 0); }
 
   footer { color: var(--muted); font-size: 13px; text-align: center; padding: 24px 0 40px; }
+  .build {
+    display: inline-flex; align-items: center; gap: 8px; margin-bottom: 10px;
+    padding: 6px 12px; border-radius: 999px; background: var(--surface); border: 1px solid var(--line);
+    font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--ink);
+  }
+  .build i { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 25%, transparent); }
   footer code { background: var(--surface); border: 1px solid var(--line); padding: 2px 6px; border-radius: 6px; }
 
   @media (max-width: 720px) {
@@ -161,7 +167,8 @@
 </main>
 
 <footer>
-  API: <code>GET /api/products</code> · <code>POST /api/orders</code> · <code>GET /api/stats</code> · <code>GET /health</code>
+  <div><span class="build"><i></i><span id="build">build …</span></span></div>
+  API: <code>GET /api/products</code> · <code>POST /api/orders</code> · <code>GET /api/stats</code> · <code>GET /health</code> · <code>GET /metrics</code>
 </footer>
 
 <div id="cart">
@@ -314,8 +321,15 @@ $("checkout").addEventListener("submit", async e => {
 });
 
 loadProducts().then(renderCart);
+async function loadBuild() {
+  const h = await api("/health");
+  $("build").textContent = `build ${h.build} · pod ${h.instance}`;
+}
+
 loadStats();
+loadBuild();
 setInterval(loadStats, 5000);
+setInterval(loadBuild, 15000);
 </script>
 </body>
 </html>
