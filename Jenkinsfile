@@ -165,7 +165,8 @@ spec:
                 JENKINS_NODE_COOKIE=dontKillMe setsid nohup env PORT=18080 APP_VERSION="$TAG" RESTOCK_INTERVAL_SECS=0 DATABASE_URL="$PG_URL" \
                   ./target/debug/app-repo > reports/app.log 2>&1 &
                 for i in $(seq 1 30); do
-                  wget -qO- "$TEST_URL/ready" && exit 0
+                  # Image rust:slim tidak punya wget/curl; pakai /dev/tcp bawaan bash.
+                  bash -c 'exec 3<>/dev/tcp/127.0.0.1/18080 && printf "GET /ready HTTP/1.0\\r\\n\\r\\n" >&3 && head -1 <&3 | grep -q " 200 "' && exit 0
                   sleep 1
                 done
                 cat reports/app.log

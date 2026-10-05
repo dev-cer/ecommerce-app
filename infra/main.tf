@@ -58,7 +58,9 @@ resource "civo_kubernetes_cluster" "demo_cluster" {
   pools {
     label      = "system-pool"
     size       = "g4s.kube.medium"
-    node_count = 2 
+    # 3 node: k3s control plane + ArgoCD + Jenkins + Prometheus/Grafana tidak muat di 2 x 4 GB
+    # (Grafana sempat di-evict karena MemoryPressure). Jumlah node bisa diubah tanpa -replace.
+    node_count = 3
   }
 }
 
