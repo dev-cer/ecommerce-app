@@ -16,6 +16,10 @@
     Hanya resource yang cocok dengan ID/nama klaster & network ini yang dihapus; resource lain di akun aman.
 
 .EXAMPLE
+    # Klaster sudah terhapus tapi network tersangkut: sapu sisa berdasarkan ID
+    ./deploy/destroy-demo.ps1 -ClusterId <id-klaster> -NetworkId <id-network>
+
+.EXAMPLE
     $env:CIVO_TOKEN = "<api key>"
     ./deploy/destroy-demo.ps1            # minta konfirmasi nama klaster
     ./deploy/destroy-demo.ps1 -Force     # tanpa konfirmasi
@@ -25,11 +29,14 @@ param(
     [string]$TerraformDir = (Join-Path $PSScriptRoot "../infra"),
     [string]$ClusterName = "ecommerce-kcd-cluster",
     [string]$Region = "jkt1",
+    # Untuk menyapu sisa secara manual bila klaster sudah terhapus (ID ada di output terraform destroy).
+    [string]$ClusterId,
+    [string]$NetworkId,
     [switch]$Force
 )
 
 $ErrorActionPreference = "Stop"
-$networkId = $null
+$networkId = $NetworkId
 
 function Write-Step([string]$Text) { Write-Host "`n$Text" -ForegroundColor Yellow }
 function Write-Done([string]$Text) { Write-Host "✅ $Text" -ForegroundColor Green }
@@ -103,13 +110,19 @@ try {
         if ($LASTEXITCODE -eq 0 -and $tfName) { $ClusterName = $tfName }
         $tfRegion = Invoke-Quiet { terraform "-chdir=$TerraformDir" output -raw region }
         if ($LASTEXITCODE -eq 0 -and $tfRegion) { $Region = $tfRegion }
-        $tfNetwork = Invoke-Quiet { terraform "-chdir=$TerraformDir" output -raw network_id }
-        if ($LASTEXITCODE -eq 0 -and $tfNetwork -match '^[0-9a-f-]{36}$') { $networkId = $tfNetwork }
+        # ID dari state (bukan output) tetap ada walau klaster sudah terhapus & output belum pernah di-apply.
+        $tfState = Invoke-Quiet { terraform "-chdir=$TerraformDir" show -json } | Out-String |
+            ConvertFrom-Json -ErrorAction SilentlyContinue
+        foreach ($res in @($tfState.values.root_module.resources)) {
+            if ($res.type -eq "civo_network" -and -not $networkId) { $networkId = $res.values.id }
+            if ($res.type -eq "civo_kubernetes_cluster" -and -not $ClusterId) { $ClusterId = $res.values.id }
+        }
     }
     $cluster = $null
     $clusterJson = Invoke-Quiet { civo kubernetes show $ClusterName --region $Region -o json } | Out-String
     if ($LASTEXITCODE -eq 0) { $cluster = $clusterJson | ConvertFrom-Json -ErrorAction SilentlyContinue }
-    $clusterId = $cluster.id
+    $clusterId = if ($cluster.id) { $cluster.id } else { $ClusterId }
+    $clusterAlive = [bool]$cluster
     if (-not $networkId -and $cluster) {
         # Nama field berbeda antar versi civo CLI (network_id / NetworkID): ambil properti yang mengandung "network".
         $networkId = $cluster.PSObject.Properties | Where-Object { $_.Name -match "network" -and "$($_.Value)" -match '^[0-9a-f-]{36}$' } |
@@ -134,7 +147,7 @@ try {
     # 1-2. Bersihkan dari dalam klaster (LB & volume Civo dilepas dengan rapi)
     # ---------------------------------------------------------
     $reachable = $false
-    if ($clusterId) {
+    if ($clusterAlive) {
         Write-Step "[1/5] Mengambil kubeconfig & menghentikan autoscaler/ArgoCD..."
         # Kubeconfig khusus di file sementara: perintah hapus di bawah TIDAK mungkin mengenai klaster lain
         # yang kebetulan sedang aktif di ~/.kube/config.
@@ -184,8 +197,16 @@ try {
             -not (Invoke-Quiet { kubectl get pv -o name })
         } | Out-Null
         Write-Done "LoadBalancer & volume dari klaster sudah dilepas."
-    } elseif ($clusterId) {
-        Write-Warn "API klaster tidak bisa dihubungi (IP berubah / klaster rusak); LB & volume akan disapu lewat civo CLI."
+    } else {
+        if ($clusterAlive) {
+            Write-Warn "API klaster tidak bisa dihubungi (IP berubah / klaster rusak); LB & volume disapu lewat civo CLI."
+        } else {
+            Write-Warn "Klaster sudah tidak ada; LB & volume yang tertinggal disapu lewat civo CLI."
+        }
+        # Tanpa ini network tidak bisa dihapus ("Still destroying..." terus).
+        $swept = 0
+        foreach ($kind in "loadbalancer", "volume") { $swept += Remove-CivoLeftovers $kind @($clusterId, $networkId, $ClusterName) }
+        if ($swept -gt 0) { Write-Info "$swept LB/volume sisa dihapus, menunggu Civo melepasnya..."; Start-Sleep -Seconds 30 }
     }
 
     # ---------------------------------------------------------
@@ -199,6 +220,8 @@ try {
             # Biasanya network masih dipakai LB/volume yang tertinggal: sapu dulu lalu ulangi sekali.
             Write-Warn "terraform destroy gagal; menyapu resource yang masih menempel di network lalu mencoba lagi..."
             foreach ($kind in "loadbalancer", "volume") { Remove-CivoLeftovers $kind @($clusterId, $networkId, $ClusterName) | Out-Null }
+            # Firewall lain yang menempel di network (mis. buatan Civo) juga menahan penghapusan network.
+            if ($networkId) { Remove-CivoLeftovers "firewall" @($networkId) | Out-Null }
             Start-Sleep -Seconds 30
             Invoke-Native "terraform destroy (ulang)" { terraform "-chdir=$TerraformDir" destroy -auto-approve -input=false }
         }
@@ -212,7 +235,7 @@ try {
     # 4. Sapu sisa di akun Civo
     # ---------------------------------------------------------
     Write-Step "[4/5] Memeriksa sisa resource di akun Civo..."
-    if ($clusterId) {
+    if ($clusterAlive) {
         Wait-Until "klaster terhapus dari Civo" 600 {
             Invoke-Quiet { civo kubernetes show $ClusterName --region $Region -o json } | Out-Null
             $LASTEXITCODE -ne 0
