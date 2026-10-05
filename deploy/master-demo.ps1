@@ -163,22 +163,33 @@ function Wait-Until([string]$Description, [int]$TimeoutSeconds, [scriptblock]$Co
 }
 
 # State Terraform bisa basi: mis. `terraform destroy` dihentikan (Ctrl+C) saat network "Still destroying",
-# tetapi Civo tetap menyelesaikan penghapusannya. Provider lalu "memodifikasi" network yang sudah tidak ada dan
-# civo_firewall gagal ("could not find network ... in any of your regions"). Bila network di state sudah tidak
-# ada di Civo, semua resource di state dikeluarkan (firewall, klaster, node pool bergantung padanya, jadi
-# pasti ikut hilang) agar Terraform membuat ulang dari nol.
+# tetapi Civo tetap menyelesaikan penghapusannya. Provider lalu "memodifikasi" network yang sudah tidak ada
+# ("error occurred while renaming the network" / civo_firewall "could not find network"). Network dianggap
+# hilang bila setelah refresh label-nya kosong (provider tidak bisa membacanya) ATAU tidak ada di
+# `civo network ls`. Semua resource di state lalu dikeluarkan (firewall, klaster, node pool bergantung pada
+# network ini) agar Terraform membuat ulang dari nol.
 function Repair-TerraformState([string]$Dir, [string]$Region = "jkt1") {
+    Invoke-Quiet { terraform "-chdir=$Dir" apply -refresh-only -auto-approve -input=false } | Out-Null
     $state = Invoke-Quiet { terraform "-chdir=$Dir" show -json } | Out-String | ConvertFrom-Json -ErrorAction SilentlyContinue
     $resources = @($state.values.root_module.resources | Where-Object { $_.mode -eq "managed" })
     $network = $resources | Where-Object { $_.type -eq "civo_network" } | Select-Object -First 1
     if (-not $network) { return }
+    $networkId = $network.values.id
     if ($network.values.region) { $Region = "$($network.values.region)".ToLower() }
+
+    $unreadable = -not $network.values.label
+    $listed = $null
     $raw = Invoke-Quiet { civo network ls --region $Region -o json } | Out-String
-    try { $networks = @($raw | ConvertFrom-Json) } catch { return }
-    # Daftar kosong berarti civo CLI gagal (akun selalu punya network default): jangan sentuh state.
-    if ($networks.Count -eq 0 -or @($networks | Where-Object { $_.id }).Count -eq 0) { return }
-    if (@($networks | Where-Object { $_.id -eq $network.values.id }).Count -gt 0) { return }
-    Write-Info "network $($network.values.id) di Terraform state sudah tidak ada di Civo: membersihkan state basi..."
+    try { $networks = @($raw | ConvertFrom-Json | Where-Object { $_.id }) } catch { $networks = @() }
+    # Daftar kosong berarti civo CLI gagal (akun selalu punya network default): abaikan sumber ini.
+    if ($networks.Count -gt 0) { $listed = @($networks | Where-Object { $_.id -eq $networkId }).Count -gt 0 }
+    if (-not $unreadable -and $listed -ne $false) { return }
+
+    Write-Info "network $networkId di Terraform state tidak bisa dipakai lagi (terbaca provider: $(if ($unreadable) { "tidak" } else { "ya" }), ada di civo: $(if ($null -eq $listed) { "tidak diketahui" } elseif ($listed) { "ya" } else { "tidak" })): membersihkan state basi..."
+    if ($listed) {
+        # Masih terdaftar tapi rusak/setengah terhapus: milik demo ini (ID dari state), coba hapus.
+        Invoke-Quiet { civo network remove $networkId --region $Region -y } | Out-Null
+    }
     foreach ($res in $resources) {
         Invoke-Quiet { terraform "-chdir=$Dir" state rm $res.address } | Out-Null
         Write-Info "  state rm $($res.address)"
