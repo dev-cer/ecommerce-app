@@ -90,7 +90,7 @@ spec:
     Write-Host "⏳ Menunggu pod k6 berjalan... (buka Grafana → dashboard 'NusaMart · Live Demo')" -ForegroundColor DarkGray
     Write-Host "   Di terminal lain: kubectl get hpa ecommerce-rust -w  → lihat replika bertambah saat beban naik." -ForegroundColor DarkGray
     if ($LoadProfile -eq "scale") {
-        Write-Host "   Dan: kubectl get nodes -L kubernetes.civo.com/civo-node-pool -w  → node app-pool baru muncul (±2-4 menit)." -ForegroundColor DarkGray
+        Write-Host "   Lebih jelas: ./deploy/watch-scale.ps1  → CPU, replika, pod Pending, node app-pool & event autoscaler (node baru ±2-4 menit)." -ForegroundColor DarkGray
     }
     $deadline = (Get-Date).AddMinutes(3)
     do {

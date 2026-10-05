@@ -21,7 +21,7 @@ cargo run                   # tanpa database (penyimpanan in-memory, 1 replika s
 
 - **PostgreSQL** (`src/store/postgres.rs`) menyimpan produk, order, dan item order. Skema ada di `migrations/`.
 - Order diproses dalam **satu transaksi**: stok dikurangi dengan `UPDATE … WHERE stock >= qty`, sehingga banyak pod yang melayani order bersamaan **tidak pernah menjual melebihi stok**. Constraint `CHECK (stock >= 0)` menjadi pengaman terakhir. Baris diproses berurutan per id produk untuk mencegah deadlock.
-- Karena state tidak lagi di memori pod, aplikasi berjalan **2–6 replika dengan HPA** (`k8s/hpa.yaml`, target CPU 40%).
+- Karena state tidak lagi di memori pod, aplikasi berjalan **2–25 replika dengan HPA** (`k8s/hpa.yaml`, target CPU 30%).
 - `/health` = liveness (proses hidup); `/ready` = readiness (database terjangkau). Pod tanpa koneksi DB otomatis dikeluarkan dari load balancer.
 - Tanpa `DATABASE_URL`, aplikasi memakai store in-memory (`src/store/memory.rs`) dengan perilaku yang sama. Ini praktis untuk dev, tapi hanya untuk 1 replika.
 
@@ -112,7 +112,7 @@ k6 run -e BASE_URL=http://localhost:8080 -e PROFILE=spike  tests/load/stress.js 
 
 Di klaster (tanpa perlu k6 di laptop): `./deploy/stress-test.ps1 -Profile stress`. Script k6 dijalankan sebagai Job di system-pool, sementara dashboard Grafana menampilkan RPS, latensi p50/p95/p99, traffic per status, stok, CPU, dan **jumlah replika HPA yang naik-turun** (`kubectl get hpa ecommerce-rust -w`).
 
-**Autoscaling sampai node** (`-Profile scale`, ±8 menit): 600 user + endpoint rekomendasi yang berat di CPU. HPA naik sampai 25 pod; karena tidak muat di 2 node `app-pool`, sebagian pod `Pending`, lalu **Cluster Autoscaler** (ACT 4 di `master-demo.ps1`, butuh API key Civo di `$env:CIVO_TOKEN` atau konfigurasi `civo` CLI) menambah node `app-pool` (maks. 4). Setelah beban turun, pod dan node dilepas lagi. Pantau dengan `kubectl get nodes -L kubernetes.civo.com/civo-node-pool -w`.
+**Autoscaling sampai node** (`-Profile scale`, ±8 menit): 600 user + endpoint rekomendasi yang berat di CPU. HPA naik sampai 25 pod; karena tidak muat di 2 node `app-pool`, sebagian pod `Pending`, lalu **Cluster Autoscaler** (ACT 4 di `master-demo.ps1`, butuh API key Civo di `$env:CIVO_TOKEN` atau konfigurasi `civo` CLI) menambah node `app-pool` (maks. 4). Setelah beban turun, pod dan node dilepas lagi. Pantau di terminal kedua dengan `./deploy/watch-scale.ps1` (CPU vs target, replika HPA, pod `Pending`, node `app-pool`, event `TriggeredScaleUp`). Request CPU pod 250m membuat 2 node `app-pool` hanya muat ±12 pod, jadi beban ±0,9 core saja sudah cukup memicu node baru.
 
 Threshold: error < 1%, p95 baca < 200 ms (smoke) / 500 ms (stress), p95 tulis < 300 / 800 ms. Respons `409` (stok habis) dihitung sebagai perilaku benar, bukan error. Stok otomatis di-restock tiap 60 detik (`RESTOCK_INTERVAL_SECS`, `0` = mati), jadi storefront tetap bisa dipakai setelah stress test.
 

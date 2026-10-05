@@ -18,9 +18,10 @@ spec:
         name: cpu
         target:
           type: Utilization
-          # 40% dari request 150m = 60m/pod. Spike 400 user (±220m CPU total, diukur) -> ±4 pod;
-          # profil "scale" (±2,6 core) -> mentok 25 pod -> node baru.
-          averageUtilization: 40
+          # 30% dari request 250m = 75m/pod. Spike 400 user (±220m CPU total, diukur) -> ±3-4 pod;
+          # pod ke-13 dst. tidak muat di 2 node app-pool, cukup beban ±0,9 core (profil "scale"
+          # ±2,6 core) -> pod Pending -> node baru.
+          averageUtilization: 30
   behavior:
     scaleUp:
       stabilizationWindowSeconds: 0
