@@ -16,18 +16,24 @@ spec:
   # Build Rust butuh RAM besar: jalankan di app-pool agar tidak berebut dengan ArgoCD/Jenkins/Prometheus.
   nodeSelector:
     kubernetes.civo.com/civo-node-pool: app-pool
+  # Request sengaja kecil (hanya untuk penjadwalan): langkah berat (cargo, kaniko, ZAP) berjalan
+  # bergantian, bukan bersamaan, jadi limit tinggi cukup tanpa memesan RAM node secara penuh.
   containers:
+    - name: jnlp
+      resources:
+        requests: { cpu: 50m, memory: 128Mi }
+        limits: { cpu: 500m, memory: 512Mi }
     - name: rust
       image: rust:1.98-slim-trixie
       resources:
-        requests: { cpu: 250m, memory: 768Mi }
+        requests: { cpu: 200m, memory: 384Mi }
         limits: { cpu: "2", memory: 3Gi }
       command: ["sleep"]
       args: ["infinity"]
     - name: kaniko
       image: gcr.io/kaniko-project/executor:v1.24.0-debug
       resources:
-        requests: { cpu: 250m, memory: 768Mi }
+        requests: { cpu: 200m, memory: 384Mi }
         limits: { cpu: "2", memory: 3Gi }
       command: ["sleep"]
       args: ["infinity"]
@@ -37,7 +43,7 @@ spec:
     - name: postgres
       image: postgres:17-alpine
       resources:
-        requests: { cpu: 50m, memory: 64Mi }
+        requests: { cpu: 25m, memory: 32Mi }
         limits: { cpu: "1", memory: 512Mi }
       env:
         # Database sementara khusus CI (dibuang bersama pod), jadi trust auth cukup.
@@ -46,7 +52,7 @@ spec:
     - name: zap
       image: ghcr.io/zaproxy/zaproxy:stable
       resources:
-        requests: { cpu: 100m, memory: 384Mi }
+        requests: { cpu: 50m, memory: 192Mi }
         limits: { cpu: "1", memory: 1536Mi }
       command: ["sleep"]
       args: ["infinity"]
@@ -56,14 +62,14 @@ spec:
     - name: k6
       image: grafana/k6:2.3.0
       resources:
-        requests: { cpu: 50m, memory: 64Mi }
+        requests: { cpu: 25m, memory: 32Mi }
         limits: { cpu: "1", memory: 512Mi }
       command: ["sleep"]
       args: ["infinity"]
     - name: trivy
       image: aquasec/trivy:0.74.0
       resources:
-        requests: { cpu: 50m, memory: 128Mi }
+        requests: { cpu: 25m, memory: 64Mi }
         limits: { cpu: "1", memory: 1Gi }
       command: ["sleep"]
       args: ["infinity"]
