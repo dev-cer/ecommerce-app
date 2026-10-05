@@ -61,6 +61,13 @@ spec:
           mountPath: /zap/wrk
     - name: k6
       image: grafana/k6:2.3.0
+      # Image k6 berjalan sebagai uid 12345, sedangkan workspace Jenkins milik uid 1000;
+      # tanpa ini step `sh` gagal dengan "process apparently never started".
+      securityContext:
+        runAsUser: 1000
+      env:
+        - name: K6_NO_USAGE_REPORT
+          value: "true"
       resources:
         requests: { cpu: 25m, memory: 32Mi }
         limits: { cpu: "1", memory: 512Mi }
