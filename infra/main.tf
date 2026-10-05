@@ -135,6 +135,7 @@ resource "terraform_data" "cleanup_network" {
     script       = local.cleanup_script
     cluster_name = local.cluster_name
     network_id   = civo_network.custom_vpc.id
+    network_name = civo_network.custom_vpc.label
     firewall_id  = civo_firewall.cluster_fw.id # dihapus Terraform sendiri, jangan disapu
     region       = local.region
   }
@@ -147,7 +148,7 @@ resource "terraform_data" "cleanup_network" {
     when        = destroy
     on_failure  = continue
     interpreter = [self.input.shell, "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command"]
-    command     = "& '${self.input.script}' -Phase Sweep -ClusterName '${self.input.cluster_name}' -NetworkId '${self.input.network_id}' -KeepIds '${self.input.firewall_id}' -Region '${self.input.region}'"
+    command     = "& '${self.input.script}' -Phase Sweep -ClusterName '${self.input.cluster_name}' -NetworkId '${self.input.network_id}' -NetworkLabel '${self.input.network_name}' -KeepIds '${self.input.firewall_id}' -Region '${self.input.region}'"
   }
 }
 

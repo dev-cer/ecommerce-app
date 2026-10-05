@@ -26,6 +26,7 @@ param(
     # Opsional; normalnya terbaca otomatis dari Terraform state / civo CLI.
     [string]$ClusterId,
     [string]$NetworkId,
+    [string]$NetworkLabel = "ecommerce-vpc-kcd-v2",
     [switch]$Force
 )
 
@@ -43,14 +44,14 @@ function Invoke-Quiet([scriptblock]$Command) {
     & $Command 2>$null
 }
 
-function Get-CivoById([string]$Kind, [string[]]$Needles) {
-    $needles = @($Needles | Where-Object { $_ })
-    if (-not $needles) { return @() }
+# Resource yang salah satu field-nya SAMA PERSIS dengan salah satu ID (bukan pencocokan nama/substring).
+function Get-CivoById([string]$Kind, [string[]]$Ids) {
+    $ids = @($Ids | Where-Object { $_ })
+    if (-not $ids) { return @() }
     $raw = Invoke-Quiet { civo $Kind ls --region $Region -o json } | Out-String
     try { $items = @($raw | ConvertFrom-Json) } catch { return @() }
     return @($items | Where-Object {
-        $json = $_ | ConvertTo-Json -Compress -Depth 5
-        @($needles | Where-Object { $json.Contains($_) }).Count -gt 0
+        @($_.PSObject.Properties | Where-Object { $ids -contains "$($_.Value)" }).Count -gt 0
     })
 }
 
@@ -78,7 +79,11 @@ try {
             ConvertFrom-Json -ErrorAction SilentlyContinue
         foreach ($res in @($tfState.values.root_module.resources)) {
             switch ($res.type) {
-                "civo_network" { if (-not $NetworkId) { $NetworkId = $res.values.id } }
+                # Hanya network buatan infra/main.tf (ID + label dari state) yang boleh dihapus.
+                "civo_network" {
+                    if (-not $NetworkId) { $NetworkId = $res.values.id }
+                    if ($res.values.label) { $NetworkLabel = $res.values.label }
+                }
                 "civo_firewall" { $firewallIds += $res.values.id }
                 "civo_kubernetes_cluster" {
                     if (-not $ClusterId) { $ClusterId = $res.values.id }
@@ -92,18 +97,16 @@ try {
     $clusterJson = Invoke-Quiet { civo kubernetes show $ClusterName --region $Region -o json } | Out-String
     if ($LASTEXITCODE -eq 0) { $cluster = $clusterJson | ConvertFrom-Json -ErrorAction SilentlyContinue }
     if ($cluster.id) { $ClusterId = $cluster.id }
-    if (-not $NetworkId -and $cluster) {
-        # Nama field berbeda antar versi civo CLI (network_id / NetworkID): ambil properti yang mengandung "network".
-        $NetworkId = $cluster.PSObject.Properties |
-            Where-Object { $_.Name -match "network" -and "$($_.Value)" -match '^[0-9a-f-]{36}$' } |
-            Select-Object -First 1 -ExpandProperty Value
+    # Network TIDAK diambil dari klaster (bisa saja network default akun): hanya dari state atau -NetworkId.
+    $network = $null
+    if ($NetworkId) {
+        $network = Get-CivoById "network" @($NetworkId) | Where-Object { $_.id -eq $NetworkId } | Select-Object -First 1
     }
-    $networkLabel = (Get-CivoById "network" @($NetworkId) | Select-Object -First 1).label
 
     Write-Host ""
     Write-Host "  Klaster : $ClusterName ($(if ($ClusterId) { $ClusterId } else { '-' }))$(if (-not $cluster) { ' - sudah tidak ada' })"
     Write-Host "  Region  : $Region"
-    Write-Host "  Network : $(if ($NetworkId) { "$networkLabel ($NetworkId)" } else { '-' })"
+    Write-Host "  Network : $(if ($NetworkId) { "$NetworkLabel ($NetworkId)$(if (-not $network) { ' - sudah tidak ada' })" } else { '-' })"
     Write-Host "  Terraform state: $(if ($hasState) { $TerraformDir } else { 'tidak ada (lewati terraform destroy)' })"
     if (-not $ClusterId -and -not $NetworkId -and -not $hasState) {
         Write-Done "Tidak ada klaster, network, maupun Terraform state: tidak ada yang perlu dihapus."
@@ -114,7 +117,7 @@ try {
         if ($answer -ne $ClusterName) { throw "Dibatalkan." }
     }
 
-    $ids = @{ ClusterName = $ClusterName; Region = $Region }
+    $ids = @{ ClusterName = $ClusterName; Region = $Region; NetworkLabel = $NetworkLabel }
     if ($ClusterId) { $ids.ClusterId = $ClusterId }
     if ($NetworkId) { $ids.NetworkId = $NetworkId }
 
@@ -176,11 +179,11 @@ try {
     $left = @()
     if (Test-ClusterExists) { $left += "klaster $ClusterName" }
     foreach ($kind in "loadbalancer", "volume") {
-        $left += Get-CivoById $kind @($ClusterId, $NetworkId, $ClusterName) | ForEach-Object { "$kind $($_.name) ($($_.id))" }
+        $left += Get-CivoById $kind @($ClusterId, $NetworkId) | ForEach-Object { "$kind $($_.name) ($($_.id))" }
     }
-    foreach ($kind in "firewall", "network") {
-        $left += Get-CivoById $kind @($NetworkId) | ForEach-Object { "$kind $(if ($_.name) { $_.name } else { $_.label }) ($($_.id))" }
-    }
+    $left += Get-CivoById "firewall" @($NetworkId) | ForEach-Object { "firewall $($_.name) ($($_.id))" }
+    $left += Get-CivoById "network" @($NetworkId) | Where-Object { $_.id -eq $NetworkId } |
+        ForEach-Object { "network $($_.label) ($($_.id))" }
     if ($left) {
         Write-Warn "Masih tersisa (biasanya Civo masih memproses; jalankan ulang skrip ini 1-2 menit lagi):"
         $left | ForEach-Object { Write-Host "     - $_" }
