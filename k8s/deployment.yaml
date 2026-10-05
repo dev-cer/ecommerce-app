@@ -65,9 +65,10 @@ spec:
             periodSeconds: 10
           resources:
             requests:
-              # Basis HPA (target 40% = 60m/pod). 25 pod x 150m melebihi kapasitas 2 node app-pool,
-              # sehingga beban profil "scale" membuat pod Pending dan Cluster Autoscaler menambah node.
-              cpu: 150m
+              # Basis HPA (target 30% = 75m/pod). 2 node app-pool hanya muat ±12 pod x 250m, jadi
+              # begitu beban > ±0,9 core HPA meminta pod yang tidak muat -> Pending -> Cluster
+              # Autoscaler menambah node (25 pod x 250m = 6,25 core ≈ 4 node app-pool).
+              cpu: 250m
               memory: 32Mi
             limits:
               cpu: 1000m
