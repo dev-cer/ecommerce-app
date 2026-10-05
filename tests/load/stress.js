@@ -2,7 +2,7 @@
 //
 //   k6 run -e BASE_URL=http://localhost:8080 -e PROFILE=smoke  tests/load/stress.js   # CI gate (±30 detik)
 //   k6 run -e BASE_URL=http://<ip-lb>       -e PROFILE=stress tests/load/stress.js   # live demo (±4 menit)
-//   k6 run -e BASE_URL=http://<ip-lb>       -e PROFILE=spike  tests/load/stress.js   # lonjakan mendadak
+//   k6 run -e BASE_URL=http://<ip-lb>       -e PROFILE=spike  tests/load/stress.js   # lonjakan mendadak (±2,5 menit)
 //
 // Alur tiap virtual user meniru pembeli: buka toko → lihat katalog → cari produk → kadang checkout.
 
@@ -24,11 +24,13 @@ const PROFILES = {
     { duration: "1m", target: 300 },
     { duration: "30s", target: 0 },
   ],
+  // Puncak ditahan 2 menit: HPA butuh ±30-60 detik (metrics-server + sinkronisasi HPA + start pod)
+  // untuk bereaksi, jadi puncak yang lebih singkat sudah selesai sebelum pod baru muncul.
   spike: [
     { duration: "10s", target: 10 },
     { duration: "10s", target: 400 },
-    { duration: "40s", target: 400 },
-    { duration: "10s", target: 10 },
+    { duration: "2m", target: 400 },
+    { duration: "20s", target: 0 },
   ],
 };
 

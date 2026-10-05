@@ -61,7 +61,7 @@ spec:
             periodSeconds: 10
           resources:
             requests:
-              cpu: 100m # basis perhitungan HPA (target 60%)
+              cpu: 100m # basis perhitungan HPA (target 40%)
               memory: 32Mi
             limits:
               cpu: 500m

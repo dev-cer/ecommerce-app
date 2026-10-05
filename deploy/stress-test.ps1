@@ -8,7 +8,7 @@
 
 .EXAMPLE
     ./stress-test.ps1                 # profil stress (±4 menit, sampai 300 virtual user)
-    ./stress-test.ps1 -Profile spike  # lonjakan mendadak 400 virtual user
+    ./stress-test.ps1 -Profile spike  # lonjakan mendadak 400 virtual user, ditahan 2 menit (±2,5 menit)
     ./stress-test.ps1 -Profile smoke  # cek cepat 30 detik
 #>
 [CmdletBinding()]
