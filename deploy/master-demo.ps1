@@ -427,6 +427,9 @@ alertmanager:
 kube-state-metrics:
   nodeSelector:
     kubernetes.civo.com/civo-node-pool: system-pool
+  # Label node pool Civo dibutuhkan dashboard "Civo Quota & Kapasitas Klaster" (baris per node pool).
+  metricLabelsAllowlist:
+    - nodes=[kubernetes.civo.com/civo-node-pool]
   resources:
     requests: { cpu: 25m, memory: 64Mi }
     limits: { memory: 256Mi }
