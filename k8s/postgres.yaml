@@ -30,6 +30,9 @@ spec:
     metadata:
       labels:
         app: postgres
+      annotations:
+        # Cluster Autoscaler tidak boleh mengosongkan node yang menjalankan database saat scale-down.
+        cluster-autoscaler.kubernetes.io/safe-to-evict: "false"
     spec:
       nodeSelector:
         kubernetes.civo.com/civo-node-pool: app-pool

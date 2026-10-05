@@ -23,6 +23,8 @@ pub struct AppState {
     /// Nama pod di Kubernetes (env `HOSTNAME`).
     pub instance: Arc<str>,
     pub http: Arc<HttpMetrics>,
+    /// Putaran "model" rekomendasi per kandidat (env `RECO_WORK`); kecil secara default untuk test.
+    pub reco_work: u32,
 }
 
 #[derive(Debug, Deserialize)]
@@ -45,7 +47,13 @@ impl AppState {
             build: env_or("APP_VERSION", "dev").into(),
             instance: env_or("HOSTNAME", "local").into(),
             http: Arc::default(),
+            reco_work: 1_000,
         }
+    }
+
+    pub fn with_reco_work(mut self, work: u32) -> Self {
+        self.reco_work = work;
+        self
     }
 
     pub async fn products(

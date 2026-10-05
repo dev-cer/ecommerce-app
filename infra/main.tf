@@ -73,10 +73,25 @@ resource "civo_kubernetes_node_pool" "app_pool" {
   label      = "app-pool"
   size       = "g4s.kube.medium"
   node_count = 2
+
+  # Jumlah node app-pool diatur Cluster Autoscaler (2-4 node, lihat deploy/master-demo.ps1);
+  # tanpa ini setiap `terraform apply` akan mengembalikannya ke 2 di tengah demo.
+  lifecycle {
+    ignore_changes = [node_count]
+  }
 }
 
 # 5. OUTPUT (Wajib agar PowerShell otomatis mendapatkan nama klaster)
 output "cluster_name" {
   value       = civo_kubernetes_cluster.demo_cluster.name
   description = "Nama klaster untuk ditarik secara otomatis oleh skrip Act 0"
+}
+
+# Dipakai Cluster Autoscaler (deploy/master-demo.ps1) untuk menambah/mengurangi node app-pool.
+output "cluster_id" {
+  value = civo_kubernetes_cluster.demo_cluster.id
+}
+
+output "region" {
+  value = civo_kubernetes_cluster.demo_cluster.region
 }

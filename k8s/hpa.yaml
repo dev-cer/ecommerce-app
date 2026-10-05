@@ -10,27 +10,30 @@ spec:
     kind: Deployment
     name: ecommerce-rust
   minReplicas: 2
-  maxReplicas: 6
+  # 25 replika tidak muat di 2 node app-pool: pod Pending memicu Cluster Autoscaler menambah node.
+  maxReplicas: 25
   metrics:
     - type: Resource
       resource:
         name: cpu
         target:
           type: Utilization
-          # 40% dari request 100m: spike 400 user (±110m CPU/pod, diukur) memicu scale-up sampai 6 pod.
+          # 40% dari request 150m = 60m/pod. Spike 400 user (±220m CPU total, diukur) -> ±4 pod;
+          # profil "scale" (±2,6 core) -> mentok 25 pod -> node baru.
           averageUtilization: 40
   behavior:
     scaleUp:
       stabilizationWindowSeconds: 0
       policies:
-        # Agresif agar lonjakan terlihat di panggung: 2 -> 6 pod dalam satu langkah.
+        # Agresif agar lonjakan terlihat di panggung.
         - type: Pods
-          value: 4
+          value: 8
           periodSeconds: 15
     scaleDown:
       # Cukup singkat agar audience melihat pod turun lagi setelah stress test selesai.
       stabilizationWindowSeconds: 60
       policies:
-        - type: Pods
-          value: 1
+        # Separuh replika per 30 detik: 25 -> 2 dalam ±2 menit, lalu node berlebih dilepas autoscaler.
+        - type: Percent
+          value: 50
           periodSeconds: 30

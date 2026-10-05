@@ -3,6 +3,7 @@
 //   k6 run -e BASE_URL=http://localhost:8080 -e PROFILE=smoke  tests/load/stress.js   # CI gate (±30 detik)
 //   k6 run -e BASE_URL=http://<ip-lb>       -e PROFILE=stress tests/load/stress.js   # live demo (±4 menit)
 //   k6 run -e BASE_URL=http://<ip-lb>       -e PROFILE=spike  tests/load/stress.js   # lonjakan mendadak (±2,5 menit)
+//   k6 run -e BASE_URL=http://<ip-lb>       -e PROFILE=scale  tests/load/stress.js   # autoscaling node (±8 menit)
 //
 // Alur tiap virtual user meniru pembeli: buka toko → lihat katalog → cari produk → kadang checkout.
 
@@ -32,23 +33,42 @@ const PROFILES = {
     { duration: "2m", target: 400 },
     { duration: "20s", target: 0 },
   ],
+  // Beban berat (+ rekomendasi yang mahal di CPU) yang melebihi kapasitas app-pool: HPA menambah pod
+  // sampai ada yang Pending, lalu Cluster Autoscaler menambah node Civo (±2-4 menit). Puncak ditahan
+  // 6 menit agar node baru sempat bergabung dan pod Pending terjadwal di depan audience.
+  scale: [
+    { duration: "1m", target: 600 },
+    { duration: "6m", target: 600 },
+    { duration: "1m", target: 0 },
+  ],
 };
 
 if (!PROFILES[PROFILE]) {
   throw new Error(`PROFILE tidak dikenal: ${PROFILE} (pilih: ${Object.keys(PROFILES).join(", ")})`);
 }
 
+const DEFAULT_THRESHOLDS = {
+  // Gate kualitas: pipeline gagal jika dilanggar.
+  http_req_failed: ["rate<0.01"],
+  "http_req_duration{type:read}": [PROFILE === "smoke" ? "p(95)<200" : "p(95)<500"],
+  "http_req_duration{type:write}": [PROFILE === "smoke" ? "p(95)<300" : "p(95)<800"],
+  checks: ["rate>0.99"],
+};
+
+// Profil scale sengaja mendorong aplikasi melewati kapasitas node; latensi naik sampai node baru siap.
+const SCALE_THRESHOLDS = {
+  http_req_failed: ["rate<0.05"],
+  "http_req_duration{type:read}": ["p(95)<3000"],
+  "http_req_duration{type:write}": ["p(95)<3000"],
+  "http_req_duration{type:reco}": ["p(95)<5000"],
+  checks: ["rate>0.95"],
+};
+
 export const options = {
   scenarios: {
     shoppers: { executor: "ramping-vus", startVUs: 0, stages: PROFILES[PROFILE], gracefulRampDown: "10s" },
   },
-  thresholds: {
-    // Gate kualitas: pipeline gagal jika dilanggar.
-    http_req_failed: ["rate<0.01"],
-    "http_req_duration{type:read}": [PROFILE === "smoke" ? "p(95)<200" : "p(95)<500"],
-    "http_req_duration{type:write}": [PROFILE === "smoke" ? "p(95)<300" : "p(95)<800"],
-    checks: ["rate>0.99"],
-  },
+  thresholds: PROFILE === "scale" ? SCALE_THRESHOLDS : DEFAULT_THRESHOLDS,
   summaryTrendStats: ["avg", "med", "p(90)", "p(95)", "max"],
 };
 
@@ -79,6 +99,16 @@ export default function ({ productIds }) {
 
     check(http.get(`${BASE_URL}/api/stats`, read), { "stats 200": (r) => r.status === 200 });
   });
+
+  if (PROFILE === "scale") {
+    group("rekomendasi", () => {
+      for (let i = 0; i < 2; i++) {
+        const productId = productIds[Math.floor(Math.random() * productIds.length)];
+        const res = http.get(`${BASE_URL}/api/recommendations?product_id=${productId}`, { tags: { type: "reco" } });
+        check(res, { "rekomendasi 200": (r) => r.status === 200 });
+      }
+    });
+  }
 
   sleep(Math.random() * 1.5 + 0.5);
 

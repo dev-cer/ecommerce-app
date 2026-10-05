@@ -242,6 +242,34 @@ backend_test!(restock_refills_to_initial_stock, |app, state| {
     );
 });
 
+backend_test!(
+    recommendations_exclude_product_and_prefer_same_category,
+    |app, _state| {
+        let (status, _, body) = send(&app, get("/api/recommendations?product_id=1")).await;
+        assert_eq!(status, StatusCode::OK);
+        let recs: Value = serde_json::from_slice(&body).unwrap();
+        let recs = recs.as_array().unwrap();
+        assert_eq!(recs.len(), 4);
+        assert!(recs.iter().all(|r| r["product_id"] != 1));
+        // Produk 1 = Makanan; produk Makanan lain (4, 7) harus berada di urutan teratas.
+        let top: Vec<_> = recs[..2]
+            .iter()
+            .map(|r| r["product_id"].as_i64().unwrap())
+            .collect();
+        assert!(top.contains(&4) && top.contains(&7), "top: {top:?}");
+
+        assert_eq!(
+            status_of(&app, get("/api/recommendations?product_id=999")).await,
+            StatusCode::NOT_FOUND
+        );
+        assert!(
+            status_of(&app, get("/api/recommendations"))
+                .await
+                .is_client_error()
+        );
+    }
+);
+
 // ---------- Keamanan ----------
 
 backend_test!(security_headers_on_every_response, |app, _state| {

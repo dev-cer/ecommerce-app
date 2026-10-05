@@ -63,6 +63,7 @@ curl -X POST localhost:8080/api/orders \
 | GET    | `/api/orders`         | Daftar order (terbaru dulu)                  |
 | POST   | `/api/orders`         | Buat order — validasi stok, all-or-nothing   |
 | GET    | `/api/stats`          | Ringkasan order, item terjual, omzet         |
+| GET    | `/api/recommendations?product_id=` | Rekomendasi produk (CPU-berat ±3 ms, beban demo autoscaling) |
 | GET    | `/metrics`            | Metrik Prometheus (bisnis, request HTTP, histogram latensi) |
 
 ## CI/CD & GitOps (KCD Bandung 2026)
@@ -110,6 +111,8 @@ k6 run -e BASE_URL=http://localhost:8080 -e PROFILE=spike  tests/load/stress.js 
 ```
 
 Di klaster (tanpa perlu k6 di laptop): `./deploy/stress-test.ps1 -Profile stress`. Script k6 dijalankan sebagai Job di system-pool, sementara dashboard Grafana menampilkan RPS, latensi p50/p95/p99, traffic per status, stok, CPU, dan **jumlah replika HPA yang naik-turun** (`kubectl get hpa ecommerce-rust -w`).
+
+**Autoscaling sampai node** (`-Profile scale`, ±8 menit): 600 user + endpoint rekomendasi yang berat di CPU. HPA naik sampai 25 pod; karena tidak muat di 2 node `app-pool`, sebagian pod `Pending`, lalu **Cluster Autoscaler** (ACT 4 di `master-demo.ps1`, butuh API key Civo di `$env:CIVO_TOKEN` atau konfigurasi `civo` CLI) menambah node `app-pool` (maks. 4). Setelah beban turun, pod dan node dilepas lagi. Pantau dengan `kubectl get nodes -L kubernetes.civo.com/civo-node-pool -w`.
 
 Threshold: error < 1%, p95 baca < 200 ms (smoke) / 500 ms (stress), p95 tulis < 300 / 800 ms. Respons `409` (stok habis) dihitung sebagai perilaku benar, bukan error. Stok otomatis di-restock tiap 60 detik (`RESTOCK_INTERVAL_SECS`, `0` = mati), jadi storefront tetap bisa dipakai setelah stress test.
 
