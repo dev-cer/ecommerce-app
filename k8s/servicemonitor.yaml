@@ -1,0 +1,18 @@
+# Membutuhkan CRD dari kube-prometheus-stack (ACT 3). Anotasi di bawah membuat ArgoCD
+# tidak gagal sync bila CRD belum ada; ArgoCD akan retry sampai monitoring terpasang.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: ecommerce-rust
+  labels:
+    app: ecommerce-rust
+  annotations:
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  selector:
+    matchLabels:
+      app: ecommerce-rust
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 15s

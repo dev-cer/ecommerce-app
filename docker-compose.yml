@@ -1,0 +1,30 @@
+# Jalankan lokal dengan PostgreSQL:  docker compose up --build  →  http://localhost:8080
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: nusamart
+      POSTGRES_PASSWORD: nusamart-dev # hanya untuk lokal
+      POSTGRES_DB: nusamart
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U nusamart -d nusamart"]
+      interval: 3s
+      retries: 20
+
+  app:
+    build: .
+    environment:
+      DATABASE_URL: postgres://nusamart:nusamart-dev@postgres:5432/nusamart
+      APP_VERSION: compose
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  pgdata:

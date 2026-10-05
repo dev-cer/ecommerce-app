@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NusaMart · E-commerce Demo</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🛒</text></svg>">
+<link rel="stylesheet" href="/app.css">
+</head>
+<body>
+<header>
+  <div class="wrap bar">
+    <div class="logo">Nusa<span>Mart</span></div>
+    <input id="search" class="search" type="search" placeholder="Cari kopi, batik, keyboard…">
+    <button id="cartBtn" class="cart-btn">🛒 Keranjang <span id="badge" class="badge"></span></button>
+  </div>
+</header>
+
+<main class="wrap">
+  <section class="hero">
+    <div>
+      <h1>Produk lokal pilihan,<br>diantar secepat sprint.</h1>
+      <p>Demo storefront yang ditenagai Rust + Axum. Stok, order, dan statistik diperbarui langsung dari API.</p>
+    </div>
+    <div class="stats">
+      <div class="stat"><b id="sOrders">0</b><small>Order</small></div>
+      <div class="stat"><b id="sItems">0</b><small>Item terjual</small></div>
+      <div class="stat"><b id="sRevenue">0</b><small>Omzet</small></div>
+    </div>
+  </section>
+
+  <div id="chips" class="chips"></div>
+  <div id="grid" class="grid"></div>
+</main>
+
+<footer>
+  <div><span class="build"><i></i><span id="build">build …</span></span></div>
+  API: <code>GET /api/products</code> · <code>POST /api/orders</code> · <code>GET /api/stats</code> · <code>GET /health</code> · <code>GET /metrics</code>
+</footer>
+
+<div id="cart">
+  <div class="drawer-bg" data-close></div>
+  <aside class="drawer" aria-label="Keranjang">
+    <h2>Keranjang <button data-close aria-label="Tutup">✕</button></h2>
+    <div id="lines" class="lines"></div>
+    <form id="checkout" class="checkout">
+      <div class="total"><span>Total</span><span id="total">Rp0</span></div>
+      <input id="customer" placeholder="Nama pembeli" required>
+      <button id="pay" class="pay" type="submit">Bayar sekarang</button>
+    </form>
+  </aside>
+</div>
+
+<div id="toast" class="toast"></div>
+
+<script src="/app.js" defer></script>
+</body>
+</html>

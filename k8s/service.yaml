@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: ecommerce-rust-svc
+  labels:
+    app: ecommerce-rust
+spec:
+  type: LoadBalancer
+  selector:
+    app: ecommerce-rust
+  ports:
+    - name: http
+      port: 80
+      targetPort: http

@@ -1,0 +1,73 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ecommerce-rust
+  labels:
+    app: ecommerce-rust
+spec:
+  # Jumlah replika diatur oleh HPA (hpa.yaml). Field `replicas` sengaja tidak ditulis supaya
+  # ArgoCD (selfHeal) tidak melawan HPA dengan mengembalikan jumlahnya.
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0 # pod lama baru dimatikan setelah pod baru ready → zero downtime saat demo
+  selector:
+    matchLabels:
+      app: ecommerce-rust
+  template:
+    metadata:
+      labels:
+        app: ecommerce-rust
+    spec:
+      nodeSelector:
+        kubernetes.civo.com/civo-node-pool: app-pool
+      imagePullSecrets:
+        - name: ghcr-creds
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: app
+          # Tag di-update otomatis oleh Jenkins (stage "GitOps: Update Manifest").
+          image: ghcr.io/dev-cer/ecommerce-app:latest
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: PGUSER
+              valueFrom: { secretKeyRef: { name: postgres-credentials, key: username } }
+            - name: PGPASSWORD
+              valueFrom: { secretKeyRef: { name: postgres-credentials, key: password } }
+            - name: PGDATABASE
+              valueFrom: { secretKeyRef: { name: postgres-credentials, key: database } }
+            - name: DATABASE_URL
+              value: postgres://$(PGUSER):$(PGPASSWORD)@postgres:5432/$(PGDATABASE)
+            - name: DB_MAX_CONNECTIONS
+              value: "10"
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: http
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 100m # basis perhitungan HPA (target 60%)
+              memory: 32Mi
+            limits:
+              cpu: 500m
+              memory: 128Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
