@@ -162,6 +162,29 @@ function Wait-Until([string]$Description, [int]$TimeoutSeconds, [scriptblock]$Co
     throw "Timeout menunggu $Description."
 }
 
+# State Terraform bisa basi: mis. `terraform destroy` dihentikan (Ctrl+C) saat network "Still destroying",
+# tetapi Civo tetap menyelesaikan penghapusannya. Provider lalu "memodifikasi" network yang sudah tidak ada dan
+# civo_firewall gagal ("could not find network ... in any of your regions"). Bila network di state sudah tidak
+# ada di Civo, semua resource di state dikeluarkan (firewall, klaster, node pool bergantung padanya, jadi
+# pasti ikut hilang) agar Terraform membuat ulang dari nol.
+function Repair-TerraformState([string]$Dir, [string]$Region = "jkt1") {
+    $state = Invoke-Quiet { terraform "-chdir=$Dir" show -json } | Out-String | ConvertFrom-Json -ErrorAction SilentlyContinue
+    $resources = @($state.values.root_module.resources | Where-Object { $_.mode -eq "managed" })
+    $network = $resources | Where-Object { $_.type -eq "civo_network" } | Select-Object -First 1
+    if (-not $network) { return }
+    if ($network.values.region) { $Region = "$($network.values.region)".ToLower() }
+    $raw = Invoke-Quiet { civo network ls --region $Region -o json } | Out-String
+    try { $networks = @($raw | ConvertFrom-Json) } catch { return }
+    # Daftar kosong berarti civo CLI gagal (akun selalu punya network default): jangan sentuh state.
+    if ($networks.Count -eq 0 -or @($networks | Where-Object { $_.id }).Count -eq 0) { return }
+    if (@($networks | Where-Object { $_.id -eq $network.values.id }).Count -gt 0) { return }
+    Write-Info "network $($network.values.id) di Terraform state sudah tidak ada di Civo: membersihkan state basi..."
+    foreach ($res in $resources) {
+        Invoke-Quiet { terraform "-chdir=$Dir" state rm $res.address } | Out-Null
+        Write-Info "  state rm $($res.address)"
+    }
+}
+
 # Password alfanumerik (aman dipakai di URL koneksi tanpa escaping).
 function New-RandomPassword([int]$Length = 32) {
     $chars = [char[]]"ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789"
@@ -215,6 +238,7 @@ try {
         throw "Tidak ada file .tf di '$TerraformDir'. Pindahkan main.tf ke folder infra/ atau pakai -TerraformDir."
     }
     Invoke-Native "terraform init"  { terraform "-chdir=$TerraformDir" init -input=false }
+    Repair-TerraformState $TerraformDir
     Invoke-Native "terraform apply" { terraform "-chdir=$TerraformDir" apply -auto-approve -input=false }
 
     $clusterName = terraform "-chdir=$TerraformDir" output -raw cluster_name
