@@ -17,3 +17,8 @@ Syarat `main.tf`:
 
 Yang boleh di-commit: `main.tf` (dan file `.tf` lain) serta `.terraform.lock.hcl`.
 `terraform.tfstate`, folder `.terraform/`, dan `*.tfvars` sudah di-ignore karena berisi data rahasia klaster.
+
+Saat `terraform destroy`, provisioner `terraform_data.cleanup_in_cluster` dan `cleanup_network` otomatis menjalankan
+`../deploy/cleanup-civo.ps1` agar LoadBalancer, IP publik, dan volume yang dibuat Kubernetes ikut terhapus
+(network tidak tersangkut). Butuh `civo` CLI yang sudah login dan `kubectl`. Di macOS/Linux:
+`terraform destroy -var powershell=pwsh`.
