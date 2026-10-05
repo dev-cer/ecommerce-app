@@ -116,6 +116,23 @@ Di klaster (tanpa perlu k6 di laptop): `./deploy/stress-test.ps1 -Profile stress
 
 Threshold: error < 1%, p95 baca < 200 ms (smoke) / 500 ms (stress), p95 tulis < 300 / 800 ms. Respons `409` (stok habis) dihitung sebagai perilaku benar, bukan error. Stok otomatis di-restock tiap 60 detik (`RESTOCK_INTERVAL_SECS`, `0` = mati), jadi storefront tetap bisa dipakai setelah stress test.
 
+## Bongkar demo (bersih sampai network)
+
+```powershell
+$env:CIVO_TOKEN = "<api key Civo>"
+.\deploy\destroy-demo.ps1          # minta ketik nama klaster sebagai konfirmasi
+```
+
+LoadBalancer (+ IP publik) dan volume PVC dibuat Kubernetes, bukan Terraform. Jika klaster langsung di-`terraform destroy`, keduanya tertinggal (tetap ditagih) dan network gagal dihapus. Script ini:
+
+1. mematikan Cluster Autoscaler & ArgoCD (agar tidak membuat ulang resource),
+2. menghapus semua Service `LoadBalancer` dan PVC, menunggu Civo melepas LB, IP & volume,
+3. `terraform destroy` di `infra/` (node pool, klaster, firewall, network), mencoba ulang sekali setelah menyapu sisa bila gagal,
+4. menyapu sisa di akun Civo yang terkait ID klaster/network ini saja (LB, volume, firewall, network),
+5. menghapus konteks klaster dari kubeconfig lokal, lalu melaporkan apa pun yang masih tersisa.
+
+Semua perintah kubectl memakai kubeconfig sementara milik klaster demo, jadi tidak mungkin mengenai klaster lain yang sedang aktif.
+
 ## Struktur
 
 ```
@@ -134,7 +151,7 @@ tests/load/      # skenario k6
 .zap/            # aturan OWASP ZAP
 migrations/      # skema PostgreSQL (sqlx migrate)
 k8s/             # manifest GitOps: app, PostgreSQL StatefulSet, HPA, NetworkPolicy, monitoring
-deploy/          # master-demo.ps1 (provisioning) & stress-test.ps1
+deploy/          # master-demo.ps1 (provisioning), stress-test.ps1, watch-scale.ps1, destroy-demo.ps1
 Jenkinsfile      # pipeline CI/DevSecOps
 ```
 
