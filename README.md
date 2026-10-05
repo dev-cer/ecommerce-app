@@ -128,7 +128,7 @@ LoadBalancer (+ IP publik) dan volume PVC dibuat Kubernetes, bukan Terraform; ka
 - **`terraform destroy` langsung pun bersih.** `infra/main.tf` punya provisioner destroy (`terraform_data.cleanup_*`) yang menjalankan `deploy/cleanup-civo.ps1`. Urutannya: hapus Service LoadBalancer & PVC dari dalam klaster → node pool → klaster → sapu LB/volume/firewall sisa di network → firewall → network. Di macOS/Linux tambahkan `-var powershell=pwsh`.
 - **`destroy-demo.ps1`** membaca ID klaster, network & firewall dari Terraform state (tetap ada walau klaster sudah terhapus), membersihkan LB/volume, menjalankan `terraform destroy` (diulang sekali setelah menyapu bila gagal), menyapu sisa terakhir, menghapus konteks kubeconfig lokal, lalu melaporkan apa pun yang tersisa (aman dijalankan ulang).
 
-Hanya resource yang cocok dengan ID/nama klaster & network demo yang disentuh; kubectl memakai kubeconfig sementara khusus klaster demo.
+Pencocokan memakai **ID persis**, bukan nama. Network yang dihapus hanya network buatan `infra/main.tf`: UUID-nya diambil dari Terraform state dan labelnya harus `ecommerce-vpc-kcd-v2`. Network `default` akun (dan LB/volume/firewall di dalamnya) tidak pernah disentuh. kubectl memakai kubeconfig sementara khusus klaster demo.
 
 ## Struktur
 

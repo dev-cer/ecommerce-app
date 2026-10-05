@@ -13,7 +13,9 @@
                         di klaster/network ini, juga firewall lain di network (kecuali -KeepIds).
                         -IncludeNetwork ikut menghapus network-nya (sapu akhir).
 
-    Hanya resource yang cocok dengan ID/nama klaster & network ini yang disentuh. Aman diulang.
+    Pencocokan memakai ID persis (bukan nama). Network hanya disentuh bila ID-nya sama dengan -NetworkId
+    DAN labelnya sama dengan -NetworkLabel (network buatan infra/main.tf); network "default" tidak pernah
+    disentuh. Aman diulang.
 #>
 [CmdletBinding()]
 param(
@@ -22,6 +24,7 @@ param(
     [string]$ClusterName = "ecommerce-kcd-cluster",
     [string]$ClusterId,
     [string]$NetworkId,
+    [string]$NetworkLabel = "ecommerce-vpc-kcd-v2",
     [string]$Region = "jkt1",
     [string[]]$KeepIds = @(),
     [switch]$IncludeNetwork,
@@ -50,19 +53,34 @@ function Wait-Until([string]$Description, [int]$Seconds, [scriptblock]$Condition
     return $false
 }
 
-# Resource Civo (JSON) yang terkait klaster/network ini. Dicocokkan ke seluruh isi objek (cluster_id,
-# network_id, nama) agar tidak bergantung pada nama field per versi civo CLI.
-function Get-CivoResources([string]$Kind, [string[]]$Needles) {
-    $needles = @($Needles | Where-Object { $_ })
-    if (-not $needles) { return @() }
+function Get-CivoList([string]$Kind) {
     $raw = Invoke-Quiet { civo $Kind ls --region $Region -o json } | Out-String
     if (-not $raw.Trim()) { return @() }
-    try { $items = @($raw | ConvertFrom-Json) } catch { return @() }
-    return @($items | Where-Object {
+    try { return @($raw | ConvertFrom-Json) } catch { return @() }
+}
+
+# Resource yang salah satu field-nya (cluster_id, network_id, ...) SAMA PERSIS dengan salah satu ID.
+# Nama field dibaca generik agar tidak bergantung pada versi civo CLI; -KeepIds tidak pernah disentuh.
+function Get-CivoResources([string]$Kind, [string[]]$Ids) {
+    $ids = @($Ids | Where-Object { $_ })
+    if (-not $ids) { return @() }
+    return @(Get-CivoList $Kind | Where-Object {
         $item = $_
-        $json = $item | ConvertTo-Json -Compress -Depth 5
-        ($KeepIds -notcontains $item.id) -and (@($needles | Where-Object { $json.Contains($_) }).Count -gt 0)
+        ($KeepIds -notcontains $item.id) -and
+            @($item.PSObject.Properties | Where-Object { $ids -contains "$($_.Value)" }).Count -gt 0
     })
+}
+
+# Network buatan infra/main.tf: ID persis + label cocok + bukan network default akun.
+function Get-OwnedNetwork {
+    if (-not $NetworkId) { return $null }
+    $network = Get-CivoList "network" | Where-Object { $_.id -eq $NetworkId } | Select-Object -First 1
+    if (-not $network) { return $null }
+    if ($network.default -eq $true -or $network.label -eq "default" -or $network.label -ne $NetworkLabel) {
+        Write-Warn "network $($network.label) ($NetworkId) bukan '$NetworkLabel' buatan Terraform: tidak disentuh."
+        return $null
+    }
+    return $network
 }
 
 function Get-Label($Item) {
@@ -70,8 +88,8 @@ function Get-Label($Item) {
     return $Item.id
 }
 
-function Remove-CivoResources([string]$Kind, [string[]]$Needles) {
-    $found = Get-CivoResources $Kind $Needles
+function Remove-CivoResources([string]$Kind, [string[]]$Ids) {
+    $found = Get-CivoResources $Kind $Ids
     foreach ($item in $found) {
         Write-Info "hapus $Kind $(Get-Label $item) ($($item.id))"
         Invoke-Quiet { civo $Kind remove $item.id --region $Region -y } | Out-Null
@@ -81,18 +99,22 @@ function Remove-CivoResources([string]$Kind, [string[]]$Needles) {
 
 # LB & volume milik klaster/network ini dihapus lalu ditunggu sampai benar-benar hilang dari akun.
 function Invoke-Sweep {
-    $needles = @($ClusterId, $NetworkId, $ClusterName)
+    $network = Get-OwnedNetwork
+    $ids = @($ClusterId) + @(if ($network) { $network.id })
     $removed = 0
-    foreach ($kind in "loadbalancer", "volume") { $removed += Remove-CivoResources $kind $needles }
+    foreach ($kind in "loadbalancer", "volume") { $removed += Remove-CivoResources $kind $ids }
     if ($removed -gt 0) {
         Wait-Until "Civo melepas LB/volume" $TimeoutSeconds {
-            (@(Get-CivoResources "loadbalancer" $needles) + @(Get-CivoResources "volume" $needles)).Count -eq 0
+            (@(Get-CivoResources "loadbalancer" $ids) + @(Get-CivoResources "volume" $ids)).Count -eq 0
         } | Out-Null
     }
-    if ($NetworkId) {
+    if ($network) {
         # Firewall lain di network ini (bukan milik Terraform, lihat -KeepIds) juga menahan penghapusan network.
-        Remove-CivoResources "firewall" @($NetworkId) | Out-Null
-        if ($IncludeNetwork) { Remove-CivoResources "network" @($NetworkId) | Out-Null }
+        Remove-CivoResources "firewall" @($network.id) | Out-Null
+        if ($IncludeNetwork) {
+            Write-Info "hapus network $($network.label) ($($network.id))"
+            Invoke-Quiet { civo network remove $network.id --region $Region -y } | Out-Null
+        }
     }
 }
 
@@ -145,7 +167,7 @@ if ($Phase -eq "InCluster") {
         Remove-Item $kubeconfig -ErrorAction SilentlyContinue
     }
     # Sisa yang tidak terhapus dari dalam klaster (mis. API tidak terjangkau).
-    foreach ($kind in "loadbalancer", "volume") { Remove-CivoResources $kind @($ClusterId, $ClusterName) | Out-Null }
+    foreach ($kind in "loadbalancer", "volume") { Remove-CivoResources $kind @($ClusterId) | Out-Null }
 } else {
     Invoke-Sweep
 }
