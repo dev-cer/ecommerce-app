@@ -92,6 +92,11 @@ output "cluster_id" {
   value = civo_kubernetes_cluster.demo_cluster.id
 }
 
+# Dipakai deploy/destroy-demo.ps1 untuk menyapu sisa resource (LB, volume, firewall) di network ini.
+output "network_id" {
+  value = civo_network.custom_vpc.id
+}
+
 output "region" {
   value = civo_kubernetes_cluster.demo_cluster.region
 }
