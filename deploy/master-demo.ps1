@@ -86,6 +86,17 @@ function Set-RegistrySecret([string]$Namespace) {
 }
 
 function Install-HelmChart([string]$Release, [string]$Chart, [string]$Namespace, [string]$Values) {
+    # Run sebelumnya terhenti (Ctrl+C/timeout) → release tertinggal "pending-*" dan Helm menolak
+    # operasi baru. Bersihkan dulu supaya skrip aman dijalankan ulang.
+    $status = (Invoke-Quiet { helm status $Release -n $Namespace -o json } | Out-String | ConvertFrom-Json -ErrorAction SilentlyContinue).info.status
+    if ($status -eq "pending-install") {
+        Write-Info "release $Release tertinggal di status $status, menghapus lalu install ulang..."
+        Invoke-Native "Helm uninstall $Release" { helm uninstall $Release -n $Namespace --wait }
+    } elseif ($status -like "pending-*") {
+        Write-Info "release $Release tertinggal di status $status, rollback dulu..."
+        Invoke-Native "Helm rollback $Release" { helm rollback $Release -n $Namespace --wait }
+    }
+
     $file = New-TempFile $Values
     try {
         Invoke-Native "Helm install $Release" {
@@ -264,6 +275,10 @@ spec:
 
     # Here-string kutip tunggal: ${github-creds-*} adalah placeholder JCasC, bukan variabel PowerShell.
     $jenkinsValues = @'
+# Tanpa volume: semua konfigurasi Jenkins (job, kredensial) dibuat ulang dari JCasC saat start,
+# jadi demo tidak bergantung pada pembuatan volume Civo (yang bisa lambat / kena kuota).
+persistence:
+  enabled: false
 controller:
   nodeSelector:
     kubernetes.civo.com/civo-node-pool: system-pool
