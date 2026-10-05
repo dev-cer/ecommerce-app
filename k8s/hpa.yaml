@@ -17,13 +17,15 @@ spec:
         name: cpu
         target:
           type: Utilization
-          averageUtilization: 60
+          # 40% dari request 100m: spike 400 user (±110m CPU/pod, diukur) memicu scale-up sampai 6 pod.
+          averageUtilization: 40
   behavior:
     scaleUp:
       stabilizationWindowSeconds: 0
       policies:
+        # Agresif agar lonjakan terlihat di panggung: 2 -> 6 pod dalam satu langkah.
         - type: Pods
-          value: 2
+          value: 4
           periodSeconds: 15
     scaleDown:
       # Cukup singkat agar audience melihat pod turun lagi setelah stress test selesai.

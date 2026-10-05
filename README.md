@@ -21,7 +21,7 @@ cargo run                   # tanpa database (penyimpanan in-memory, 1 replika s
 
 - **PostgreSQL** (`src/store/postgres.rs`) menyimpan produk, order, dan item order. Skema ada di `migrations/`.
 - Order diproses dalam **satu transaksi**: stok dikurangi dengan `UPDATE … WHERE stock >= qty`, sehingga banyak pod yang melayani order bersamaan **tidak pernah menjual melebihi stok**. Constraint `CHECK (stock >= 0)` menjadi pengaman terakhir. Baris diproses berurutan per id produk untuk mencegah deadlock.
-- Karena state tidak lagi di memori pod, aplikasi berjalan **2–6 replika dengan HPA** (`k8s/hpa.yaml`, target CPU 60%).
+- Karena state tidak lagi di memori pod, aplikasi berjalan **2–6 replika dengan HPA** (`k8s/hpa.yaml`, target CPU 40%).
 - `/health` = liveness (proses hidup); `/ready` = readiness (database terjangkau). Pod tanpa koneksi DB otomatis dikeluarkan dari load balancer.
 - Tanpa `DATABASE_URL`, aplikasi memakai store in-memory (`src/store/memory.rs`) dengan perilaku yang sama. Ini praktis untuk dev, tapi hanya untuk 1 replika.
 
@@ -106,7 +106,7 @@ Hardening di aplikasi: Content-Security-Policy ketat (tanpa inline script/style)
 ```bash
 k6 run -e BASE_URL=http://localhost:8080 -e PROFILE=smoke  tests/load/stress.js   # 30 detik, dipakai di CI
 k6 run -e BASE_URL=http://localhost:8080 -e PROFILE=stress tests/load/stress.js   # naik bertahap ke 300 VU
-k6 run -e BASE_URL=http://localhost:8080 -e PROFILE=spike  tests/load/stress.js   # lonjakan 400 VU
+k6 run -e BASE_URL=http://localhost:8080 -e PROFILE=spike  tests/load/stress.js   # lonjakan 400 VU ditahan 2 menit
 ```
 
 Di klaster (tanpa perlu k6 di laptop): `./deploy/stress-test.ps1 -Profile stress`. Script k6 dijalankan sebagai Job di system-pool, sementara dashboard Grafana menampilkan RPS, latensi p50/p95/p99, traffic per status, stok, CPU, dan **jumlah replika HPA yang naik-turun** (`kubectl get hpa ecommerce-rust -w`).
