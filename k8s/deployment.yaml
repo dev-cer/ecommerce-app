@@ -32,7 +32,7 @@ spec:
       containers:
         - name: app
           # Tag di-update otomatis oleh Jenkins (stage "GitOps: Update Manifest").
-          image: ghcr.io/dev-cer/ecommerce-app:4-1da229c
+          image: ghcr.io/dev-cer/ecommerce-app:6-3d7772e
           imagePullPolicy: Always
           ports:
             - name: http
