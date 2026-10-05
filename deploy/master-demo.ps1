@@ -230,6 +230,11 @@ try {
     $workloads = kubectl get "deployment,statefulset" -n argocd -o name
     foreach ($workload in $workloads) { Invoke-KubectlPatch "argocd" $workload "merge" $nodeSelectorPatch }
     Invoke-KubectlPatch "argocd" "svc/argocd-server" "merge" @{ spec = @{ type = "LoadBalancer" } }
+    # Demo hanya memakai Application + login admin: Dex (SSO), notifikasi, dan ApplicationSet dimatikan
+    # supaya system-pool tidak kehabisan RAM (pod lain sempat di-evict karena MemoryPressure).
+    Invoke-Quiet {
+        kubectl scale deployment argocd-dex-server argocd-notifications-controller argocd-applicationset-controller -n argocd --replicas=0
+    } | Out-Null
     foreach ($workload in $workloads) {
         Invoke-Native "Rollout $workload" { kubectl rollout status $workload -n argocd --timeout=300s }
     }
@@ -331,6 +336,15 @@ agent:
 controller:
   nodeSelector:
     kubernetes.civo.com/civo-node-pool: system-pool
+  # Request eksplisit agar scheduler tidak menumpuk Jenkins dengan Prometheus di satu node.
+  resources:
+    requests:
+      cpu: 250m
+      memory: 1Gi
+    limits:
+      cpu: "2"
+      memory: 1536Mi
+  javaOpts: "-XX:MaxRAMPercentage=65"
   serviceType: LoadBalancer
   # Port 80: firewall Civo di infra/main.tf hanya membuka 80-443 untuk publik.
   servicePort: 80
@@ -388,9 +402,14 @@ controller:
     Write-Act "[ACT 3] Menginstal Prometheus & Grafana di system-pool..."
     New-Namespace "monitoring"
     $monitoringValues = @'
+# Semua komponen diberi request/limit eksplisit: tanpa itu scheduler menumpuknya di satu node
+# dan kubelet meng-evict pod saat node kehabisan RAM (MemoryPressure).
 prometheusOperator:
   nodeSelector:
     kubernetes.civo.com/civo-node-pool: system-pool
+  resources:
+    requests: { cpu: 50m, memory: 64Mi }
+    limits: { memory: 256Mi }
 prometheus:
   prometheusSpec:
     nodeSelector:
@@ -398,16 +417,29 @@ prometheus:
     # Ambil semua ServiceMonitor, termasuk milik aplikasi di namespace default.
     serviceMonitorSelectorNilUsesHelmValues: false
     podMonitorSelectorNilUsesHelmValues: false
+    retention: 12h
+    resources:
+      requests: { cpu: 200m, memory: 512Mi }
+      limits: { memory: 1536Mi }
+# Alert tidak dipakai di demo; hemat RAM di system-pool.
 alertmanager:
-  alertmanagerSpec:
-    nodeSelector:
-      kubernetes.civo.com/civo-node-pool: system-pool
+  enabled: false
 kube-state-metrics:
   nodeSelector:
     kubernetes.civo.com/civo-node-pool: system-pool
+  resources:
+    requests: { cpu: 25m, memory: 64Mi }
+    limits: { memory: 256Mi }
+prometheus-node-exporter:
+  resources:
+    requests: { cpu: 25m, memory: 32Mi }
+    limits: { memory: 128Mi }
 grafana:
   nodeSelector:
     kubernetes.civo.com/civo-node-pool: system-pool
+  resources:
+    requests: { cpu: 100m, memory: 192Mi }
+    limits: { memory: 512Mi }
   service:
     type: LoadBalancer
   sidecar:
