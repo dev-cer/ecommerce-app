@@ -20,6 +20,8 @@ spec:
       labels:
         app: ecommerce-rust
     spec:
+      nodeSelector:
+        kubernetes.civo.com/civo-node-pool: app-pool
       imagePullSecrets:
         - name: ghcr-creds
       securityContext:

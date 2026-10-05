@@ -62,11 +62,13 @@ resource "civo_kubernetes_cluster" "demo_cluster" {
   }
 }
 
+# App pool: aplikasi (HPA 2-6 pod), PostgreSQL, dan pod build Jenkins (kompilasi Rust butuh ±2-3 GB RAM).
+# 1 x small (1 vCPU / 2 GB) terlalu kecil: build bisa OOM dan HPA tidak bisa menambah pod.
 resource "civo_kubernetes_node_pool" "app_pool" {
   cluster_id = civo_kubernetes_cluster.demo_cluster.id
   label      = "app-pool"
-  size       = "g4s.kube.small"
-  node_count = 1 
+  size       = "g4s.kube.medium"
+  node_count = 2
 }
 
 # 5. OUTPUT (Wajib agar PowerShell otomatis mendapatkan nama klaster)

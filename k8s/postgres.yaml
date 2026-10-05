@@ -31,6 +31,8 @@ spec:
       labels:
         app: postgres
     spec:
+      nodeSelector:
+        kubernetes.civo.com/civo-node-pool: app-pool
       securityContext:
         runAsNonRoot: true
         runAsUser: 70 # user "postgres" di image alpine

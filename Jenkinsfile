@@ -13,13 +13,22 @@ pipeline {
 apiVersion: v1
 kind: Pod
 spec:
+  # Build Rust butuh RAM besar: jalankan di app-pool agar tidak berebut dengan ArgoCD/Jenkins/Prometheus.
+  nodeSelector:
+    kubernetes.civo.com/civo-node-pool: app-pool
   containers:
     - name: rust
       image: rust:1.98-slim-trixie
+      resources:
+        requests: { cpu: 250m, memory: 768Mi }
+        limits: { cpu: "2", memory: 3Gi }
       command: ["sleep"]
       args: ["infinity"]
     - name: kaniko
       image: gcr.io/kaniko-project/executor:v1.24.0-debug
+      resources:
+        requests: { cpu: 250m, memory: 768Mi }
+        limits: { cpu: "2", memory: 3Gi }
       command: ["sleep"]
       args: ["infinity"]
       volumeMounts:
@@ -27,12 +36,18 @@ spec:
           mountPath: /kaniko/.docker
     - name: postgres
       image: postgres:17-alpine
+      resources:
+        requests: { cpu: 50m, memory: 64Mi }
+        limits: { cpu: "1", memory: 512Mi }
       env:
         # Database sementara khusus CI (dibuang bersama pod), jadi trust auth cukup.
         - name: POSTGRES_HOST_AUTH_METHOD
           value: trust
     - name: zap
       image: ghcr.io/zaproxy/zaproxy:stable
+      resources:
+        requests: { cpu: 100m, memory: 384Mi }
+        limits: { cpu: "1", memory: 1536Mi }
       command: ["sleep"]
       args: ["infinity"]
       volumeMounts:
@@ -40,10 +55,16 @@ spec:
           mountPath: /zap/wrk
     - name: k6
       image: grafana/k6:2.3.0
+      resources:
+        requests: { cpu: 50m, memory: 64Mi }
+        limits: { cpu: "1", memory: 512Mi }
       command: ["sleep"]
       args: ["infinity"]
     - name: trivy
       image: aquasec/trivy:0.74.0
+      resources:
+        requests: { cpu: 50m, memory: 128Mi }
+        limits: { cpu: "1", memory: 1Gi }
       command: ["sleep"]
       args: ["infinity"]
       env:
@@ -87,7 +108,7 @@ spec:
           // Commit manifest dari Jenkins sendiri tidak perlu dibangun ulang (mencegah loop).
           def message = sh(script: 'git log -1 --pretty=%B', returnStdout: true).trim()
           env.SKIP_CI = message.contains('[skip ci]') ? 'true' : 'false'
-          env.TAG = "${env.BUILD_NUMBER}-${env.GIT_COMMIT.take(7)}"
+          env.TAG = "${env.BUILD_NUMBER}-${env.GIT_COMMIT.substring(0, 7)}"
           currentBuild.displayName = "#${env.BUILD_NUMBER} · ${env.TAG}"
           if (env.SKIP_CI == 'true') {
             currentBuild.description = 'Commit manifest dari CI, dilewati'

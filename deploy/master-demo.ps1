@@ -100,9 +100,48 @@ function Install-HelmChart([string]$Release, [string]$Chart, [string]$Namespace,
     $file = New-TempFile $Values
     try {
         Invoke-Native "Helm install $Release" {
-            helm upgrade --install $Release $Chart -n $Namespace -f $file --wait --timeout 15m
+            helm upgrade --install $Release $Chart -n $Namespace -f $file --timeout 15m
         }
     } finally { Remove-Item $file -ErrorAction SilentlyContinue }
+    Wait-Workloads $Namespace
+}
+
+# Tunggu semua Deployment/StatefulSet di namespace siap, sambil menampilkan progres
+# (helm --wait diam saja selama belasan menit, membingungkan saat live demo).
+function Wait-Workloads([string]$Namespace, [int]$TimeoutMinutes = 15) {
+    $workloads = Invoke-Quiet { kubectl get "deployment,statefulset" -n $Namespace -o name }
+    foreach ($workload in $workloads) {
+        Write-Info "menunggu $workload ..."
+        kubectl rollout status $workload -n $Namespace --timeout="$($TimeoutMinutes)m"
+        if ($LASTEXITCODE -ne 0) {
+            Show-Diagnostics $Namespace
+            throw "$workload di namespace $Namespace tidak kunjung siap."
+        }
+    }
+}
+
+# Ringkasan untuk debugging: pod yang belum Running + event terbaru di namespace tersebut.
+function Show-Diagnostics([string]$Namespace) {
+    Write-Host "`n--- Pod yang belum siap ($Namespace) ---" -ForegroundColor DarkYellow
+    Invoke-Quiet { kubectl get pods -n $Namespace -o wide } | Where-Object { $_ -notmatch '\s(\d+)/\1\s+Running' } | Out-Host
+    Write-Host "--- Event terakhir ($Namespace) ---" -ForegroundColor DarkYellow
+    Invoke-Quiet { kubectl get events -n $Namespace --sort-by=.lastTimestamp } | Select-Object -Last 12 | Out-Host
+}
+
+# Civo CSI membuat volume (PVC Postgres). Pernah teramati unduhan image-nya tersangkut di satu node;
+# jika belum siap dalam 3 menit, pod di-restart sekali (StatefulSet membuatnya ulang otomatis).
+function Confirm-CsiReady {
+    $sts = "statefulset/civo-csi-controller"
+    if (-not (Invoke-Quiet { kubectl get $sts -n kube-system -o name })) { return }
+    Write-Info "memeriksa Civo CSI (pembuat volume)..."
+    kubectl rollout status $sts -n kube-system --timeout=180s | Out-Null
+    if ($LASTEXITCODE -eq 0) { return }
+    Write-Info "CSI belum siap, me-restart civo-csi-controller-0 sekali..."
+    Invoke-Quiet { kubectl delete pod civo-csi-controller-0 -n kube-system --wait=false } | Out-Null
+    kubectl rollout status $sts -n kube-system --timeout=300s | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "⚠️  Civo CSI belum siap: volume Postgres akan tertunda. Cek: kubectl describe pod civo-csi-controller-0 -n kube-system" -ForegroundColor Yellow
+    }
 }
 
 function Wait-Until([string]$Description, [int]$TimeoutSeconds, [scriptblock]$Condition) {
@@ -259,6 +298,7 @@ spec:
         factor: 2
         maxDuration: 5m
 "@
+    Confirm-CsiReady
     Write-Done "Act 1 selesai: ArgoCD menyinkronkan aplikasi + PostgreSQL + HPA dari folder k8s/ (image muncul setelah build Jenkins pertama)."
 
     # ---------------------------------------------------------
@@ -279,10 +319,21 @@ spec:
 # jadi demo tidak bergantung pada pembuatan volume Civo (yang bisa lambat / kena kuota).
 persistence:
   enabled: false
+agent:
+  # Container jnlp di setiap pod build; default chart (512m/512Mi) terlalu boros untuk node medium.
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
 controller:
   nodeSelector:
     kubernetes.civo.com/civo-node-pool: system-pool
   serviceType: LoadBalancer
+  # Port 80: firewall Civo di infra/main.tf hanya membuka 80-443 untuk publik.
+  servicePort: 80
   additionalPlugins:
     - job-dsl
     - pipeline-stage-view
@@ -372,6 +423,8 @@ grafana:
 }
 catch {
     Write-Host "`n❌ ERROR: $($_.Exception.Message)" -ForegroundColor Red
+    Write-Host "`nPod yang belum Running di klaster:" -ForegroundColor DarkYellow
+    Invoke-Quiet { kubectl get pods -A } | Select-String -NotMatch "Running|Completed" | Out-Host
     Write-Host "   Perbaiki penyebabnya lalu jalankan ulang skrip; semua langkah aman diulang (idempotent)." -ForegroundColor Red
     exit 1
 }
@@ -386,7 +439,7 @@ Write-Host "=====================================================" -ForegroundCo
 $access = [ordered]@{
     "NusaMart (Rust)" = @{ Url = Get-ServiceAddress "default" "ecommerce-rust-svc";     Login = "-" }
     "ArgoCD"          = @{ Url = Get-ServiceAddress "argocd" "argocd-server" "https"; Login = "admin / " + (Get-SecretValue "argocd" "argocd-initial-admin-secret" "password") }
-    "Jenkins"         = @{ Url = Get-ServiceAddress "jenkins" "my-jenkins" "http" "8080"; Login = "admin / " + (Get-SecretValue "jenkins" "my-jenkins" "jenkins-admin-password") }
+    "Jenkins"         = @{ Url = Get-ServiceAddress "jenkins" "my-jenkins"; Login = "admin / " + (Get-SecretValue "jenkins" "my-jenkins" "jenkins-admin-password") }
     "Grafana"         = @{ Url = Get-ServiceAddress "monitoring" "kcd-monitoring-grafana"; Login = "admin / " + (Get-SecretValue "monitoring" "kcd-monitoring-grafana" "admin-password") }
 }
 foreach ($name in $access.Keys) {
