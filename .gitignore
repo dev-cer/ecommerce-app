@@ -3,3 +3,11 @@
 *.key
 *.pub
 .env
+
+# Terraform: state berisi kubeconfig & secret klaster, jangan pernah di-commit.
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+*.tfplan
+crash.log

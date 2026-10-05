@@ -15,11 +15,12 @@
       $env:GITHUB_TOKEN = "<PAT dengan scope: repo, write:packages, read:packages>"
 
 .EXAMPLE
-    ./master-demo.ps1 -TerraformDir ../infra
+    ./deploy/master-demo.ps1                          # memakai Terraform di folder infra/
+    ./deploy/master-demo.ps1 -TerraformDir D:\lain   # folder Terraform lain
 #>
 [CmdletBinding()]
 param(
-    [string]$TerraformDir = ".",
+    [string]$TerraformDir = (Join-Path $PSScriptRoot "../infra"),
     [string]$AppRepo      = "https://github.com/dev-cer/ecommerce-app.git",
     [string]$AppBranch    = "main",
     [string]$Registry     = "ghcr.io",
@@ -141,6 +142,9 @@ try {
     # ACT -1: Infrastructure as Code (Terraform)
     # ---------------------------------------------------------
     Write-Act "[ACT -1] Membangun klaster & network Civo via Terraform..."
+    if (-not (Test-Path (Join-Path $TerraformDir "*.tf"))) {
+        throw "Tidak ada file .tf di '$TerraformDir'. Pindahkan main.tf ke folder infra/ atau pakai -TerraformDir."
+    }
     Invoke-Native "terraform init"  { terraform "-chdir=$TerraformDir" init -input=false }
     Invoke-Native "terraform apply" { terraform "-chdir=$TerraformDir" apply -auto-approve -input=false }
 

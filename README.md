@@ -85,7 +85,7 @@ git push ─▶ Jenkins ──────────────────�
 ```powershell
 $env:GITHUB_USER  = "dev-cer"
 $env:GITHUB_TOKEN = "<PAT: repo, write:packages>"   # jangan pernah ditulis di skrip/repo
-./deploy/master-demo.ps1 -TerraformDir ../infra
+./deploy/master-demo.ps1        # Terraform di infra/ (atau -TerraformDir <folder lain>)
 ```
 
 Footer storefront menampilkan `build <tag> · pod <nama>`, jadi audience bisa melihat versi baru muncul setelah ArgoCD selesai rollout, dan nama pod berganti-ganti karena load balancing antar replika.
