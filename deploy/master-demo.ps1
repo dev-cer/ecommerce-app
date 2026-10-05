@@ -85,9 +85,9 @@ function Set-RegistrySecret([string]$Namespace) {
     }
 }
 
-function Install-HelmChart([string]$Release, [string]$Chart, [string]$Namespace, [string]$Values) {
-    # Run sebelumnya terhenti (Ctrl+C/timeout) → release tertinggal "pending-*" dan Helm menolak
-    # operasi baru. Bersihkan dulu supaya skrip aman dijalankan ulang.
+# Run sebelumnya terhenti (Ctrl+C/timeout/koneksi putus) → release tertinggal "pending-*" dan Helm
+# menolak operasi baru. Bersihkan dulu supaya instalasi aman diulang.
+function Repair-HelmRelease([string]$Release, [string]$Namespace) {
     $status = (Invoke-Quiet { helm status $Release -n $Namespace -o json } | Out-String | ConvertFrom-Json -ErrorAction SilentlyContinue).info.status
     if ($status -eq "pending-install") {
         Write-Info "release $Release tertinggal di status $status, menghapus lalu install ulang..."
@@ -96,11 +96,19 @@ function Install-HelmChart([string]$Release, [string]$Chart, [string]$Namespace,
         Write-Info "release $Release tertinggal di status $status, rollback dulu..."
         Invoke-Native "Helm rollback $Release" { helm rollback $Release -n $Namespace --wait }
     }
+}
 
+function Install-HelmChart([string]$Release, [string]$Chart, [string]$Namespace, [string]$Values, [int]$Attempts = 3) {
     $file = New-TempFile $Values
     try {
-        Invoke-Native "Helm install $Release" {
+        # Koneksi ke API server bisa putus sesaat (Wi-Fi venue, API server sibuk): coba ulang otomatis.
+        for ($attempt = 1; ; $attempt++) {
+            Repair-HelmRelease $Release $Namespace
             helm upgrade --install $Release $Chart -n $Namespace -f $file --timeout 15m
+            if ($LASTEXITCODE -eq 0) { break }
+            if ($attempt -ge $Attempts) { throw "Helm install $Release gagal $Attempts kali (exit code $LASTEXITCODE)." }
+            Write-Host "⚠️  Helm install $Release gagal (percobaan $attempt/$Attempts), mencoba lagi dalam 20 detik..." -ForegroundColor Yellow
+            Start-Sleep -Seconds 20
         }
     } finally { Remove-Item $file -ErrorAction SilentlyContinue }
     Wait-Workloads $Namespace
