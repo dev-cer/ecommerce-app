@@ -46,8 +46,12 @@ spec:
               valueFrom: { secretKeyRef: { name: postgres-credentials, key: database } }
             - name: DATABASE_URL
               value: postgres://$(PGUSER):$(PGPASSWORD)@postgres:5432/$(PGDATABASE)
+            # Sampai 25 replika x 3 koneksi = 75, di bawah max_connections Postgres (100).
             - name: DB_MAX_CONNECTIONS
-              value: "10"
+              value: "3"
+            # Berat komputasi /api/recommendations (±3 ms CPU per request); dipakai profil k6 "scale".
+            - name: RECO_WORK
+              value: "100000"
           readinessProbe:
             httpGet:
               path: /ready
@@ -61,10 +65,12 @@ spec:
             periodSeconds: 10
           resources:
             requests:
-              cpu: 100m # basis perhitungan HPA (target 40%)
+              # Basis HPA (target 40% = 60m/pod). 25 pod x 150m melebihi kapasitas 2 node app-pool,
+              # sehingga beban profil "scale" membuat pod Pending dan Cluster Autoscaler menambah node.
+              cpu: 150m
               memory: 32Mi
             limits:
-              cpu: 500m
+              cpu: 1000m
               memory: 128Mi
           securityContext:
             allowPrivilegeEscalation: false

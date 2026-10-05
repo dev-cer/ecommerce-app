@@ -3,6 +3,7 @@
 mod catalog;
 mod error;
 mod metrics;
+mod recommend;
 mod routes;
 mod security;
 mod state;
@@ -21,6 +22,9 @@ use crate::{
     state::AppState,
     store::{MemoryStore, PgStore, Store},
 };
+
+/// Putaran "model" rekomendasi per kandidat; ±3 ms CPU per request di release build.
+const DEFAULT_RECO_WORK: u32 = 100_000;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -43,7 +47,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .on_response(DefaultOnResponse::new().level(Level::INFO));
     let store = connect_store().await?;
     let storage = store.kind();
-    let state = AppState::new(store);
+    let reco_work = std::env::var("RECO_WORK")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(DEFAULT_RECO_WORK);
+    let state = AppState::new(store).with_reco_work(reco_work);
     spawn_restocker(state.clone());
     let app = routes::router(state).layer(trace);
 

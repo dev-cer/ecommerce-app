@@ -14,8 +14,10 @@ use tower_http::timeout::TimeoutLayer;
 
 use crate::{
     catalog::Product,
-    error::ApiResult,
-    metrics, security,
+    error::{ApiError, ApiResult},
+    metrics,
+    recommend::{self, Recommendation},
+    security,
     state::{AppState, OrderRequest},
     store::{Order, Stats},
 };
@@ -29,7 +31,8 @@ pub fn router(state: AppState) -> Router {
         .route("/products", get(list_products))
         .route("/products/{id}", get(get_product))
         .route("/orders", get(list_orders).post(create_order))
-        .route("/stats", get(stats));
+        .route("/stats", get(stats))
+        .route("/recommendations", get(recommendations));
 
     Router::new()
         .route("/", get(storefront))
@@ -140,6 +143,23 @@ async fn create_order(
         .place_order(req)
         .await
         .map(|order| (StatusCode::CREATED, Json(order)))
+}
+
+#[derive(Deserialize)]
+struct RecommendationQuery {
+    product_id: i32,
+}
+
+/// Komputasi CPU berat dijalankan di thread pool blocking agar tidak menahan event loop.
+async fn recommendations(
+    State(state): State<AppState>,
+    Query(query): Query<RecommendationQuery>,
+) -> ApiResult<Json<Vec<Recommendation>>> {
+    let work = state.reco_work;
+    tokio::task::spawn_blocking(move || recommend::recommend(query.product_id, work))
+        .await
+        .map_err(|err| ApiError::Internal(err.to_string()))?
+        .map(Json)
 }
 
 async fn stats(State(state): State<AppState>) -> ApiResult<Json<Stats>> {

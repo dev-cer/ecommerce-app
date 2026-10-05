@@ -10,11 +10,12 @@
     ./stress-test.ps1                 # profil stress (±4 menit, sampai 300 virtual user)
     ./stress-test.ps1 -Profile spike  # lonjakan mendadak 400 virtual user, ditahan 2 menit (±2,5 menit)
     ./stress-test.ps1 -Profile smoke  # cek cepat 30 detik
+    ./stress-test.ps1 -Profile scale  # ±8 menit: HPA mentok, pod Pending, Cluster Autoscaler menambah node
 #>
 [CmdletBinding()]
 param(
     [Alias("Profile")]
-    [ValidateSet("smoke", "stress", "spike")]
+    [ValidateSet("smoke", "stress", "spike", "scale")]
     [string]$LoadProfile = "stress",
     [string]$Target = "http://ecommerce-rust-svc.default.svc.cluster.local",
     [string]$Namespace = "loadtest"
@@ -88,6 +89,9 @@ spec:
 
     Write-Host "⏳ Menunggu pod k6 berjalan... (buka Grafana → dashboard 'NusaMart · Live Demo')" -ForegroundColor DarkGray
     Write-Host "   Di terminal lain: kubectl get hpa ecommerce-rust -w  → lihat replika bertambah saat beban naik." -ForegroundColor DarkGray
+    if ($LoadProfile -eq "scale") {
+        Write-Host "   Dan: kubectl get nodes -L kubernetes.civo.com/civo-node-pool -w  → node app-pool baru muncul (±2-4 menit)." -ForegroundColor DarkGray
+    }
     $deadline = (Get-Date).AddMinutes(3)
     do {
         Start-Sleep -Seconds 3
@@ -107,6 +111,7 @@ spec:
 
     Write-Host ""
     Invoke-Quiet { kubectl get hpa ecommerce-rust -n default }
+    Invoke-Quiet { kubectl get nodes -L kubernetes.civo.com/civo-node-pool }
     if ($succeeded -eq "1") {
         Write-Host "`n✅ Semua threshold k6 terpenuhi: aplikasi lolos profil '$LoadProfile'." -ForegroundColor Green
     } else {

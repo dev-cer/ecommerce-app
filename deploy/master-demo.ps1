@@ -162,6 +162,17 @@ function New-RandomPassword([int]$Length = 32) {
     return -join ($bytes | ForEach-Object { $chars[$_ % $chars.Length] })
 }
 
+# API key Civo untuk Cluster Autoscaler: $env:CIVO_TOKEN, atau key aktif di konfigurasi civo CLI (~/.civo.json).
+function Get-CivoApiKey {
+    if ($env:CIVO_TOKEN) { return $env:CIVO_TOKEN }
+    $config = Join-Path $HOME ".civo.json"
+    if (-not (Test-Path $config)) { return $null }
+    try {
+        $json = Get-Content $config -Raw | ConvertFrom-Json
+        return $json.apikeys.($json.meta.current_apikey)
+    } catch { return $null }
+}
+
 function Get-SecretValue([string]$Namespace, [string]$Name, [string]$Key) {
     $encoded = Invoke-Quiet { kubectl get secret $Name -n $Namespace -o "jsonpath={.data.$Key}" }
     if (-not $encoded) { return "<belum tersedia>" }
@@ -455,6 +466,53 @@ grafana:
     }
     Install-HelmChart "kcd-monitoring" "prometheus-community/kube-prometheus-stack" "monitoring" $monitoringValues
     Write-Done "Act 3 selesai: dashboard 'NusaMart · Live Demo' tersedia di Grafana."
+
+    # ---------------------------------------------------------
+    # ACT 4: Cluster Autoscaler - node app-pool ikut bertambah saat pod Pending
+    # ---------------------------------------------------------
+    Write-Act "[ACT 4] Menginstal Cluster Autoscaler untuk app-pool (2-4 node)..."
+    $civoKey = Get-CivoApiKey
+    if (-not $civoKey) {
+        Write-Host "⚠️  API key Civo tidak ditemukan (set `$env:CIVO_TOKEN): Cluster Autoscaler dilewati, HPA tetap berjalan." -ForegroundColor Yellow
+    } else {
+        $clusterId = terraform "-chdir=$TerraformDir" output -raw cluster_id
+        $region = terraform "-chdir=$TerraformDir" output -raw region
+        if ($LASTEXITCODE -ne 0 -or -not $clusterId -or -not $region) {
+            throw "Output 'cluster_id'/'region' tidak ditemukan di Terraform. Jalankan 'terraform apply' di folder infra dulu."
+        }
+        New-Namespace "cluster-autoscaler"
+        # API key hanya disimpan di Secret, tidak pernah masuk values Helm.
+        Invoke-Native "Membuat secret civo-autoscaler" {
+            kubectl create secret generic civo-autoscaler -n cluster-autoscaler `
+                --from-literal=api-url=https://api.civo.com --from-literal=api-key=$civoKey `
+                --from-literal=cluster-id=$clusterId --from-literal=region=$($region.ToLower()) `
+                --dry-run=client -o yaml | kubectl apply -f -
+        }
+        $autoscalerValues = @'
+cloudProvider: civo
+secretKeyRefNameOverride: civo-autoscaler
+# Hanya app-pool yang diskalakan; system-pool (ArgoCD, Jenkins, monitoring) tetap 3 node.
+autoscalingGroups:
+  - name: app-pool
+    minSize: 2
+    maxSize: 4
+extraArgs:
+  # Cepat untuk demo: node berlebih dilepas ±2 menit setelah beban turun.
+  scale-down-unneeded-time: 2m
+  scale-down-delay-after-add: 2m
+  skip-nodes-with-local-storage: false
+  skip-nodes-with-system-pods: false
+  expander: least-waste
+nodeSelector:
+  kubernetes.civo.com/civo-node-pool: system-pool
+resources:
+  requests: { cpu: 50m, memory: 128Mi }
+  limits: { memory: 512Mi }
+'@
+        Invoke-Native "helm repo add autoscaler" { helm repo add autoscaler https://kubernetes.github.io/autoscaler --force-update }
+        Install-HelmChart "cluster-autoscaler" "autoscaler/cluster-autoscaler" "cluster-autoscaler" $autoscalerValues
+        Write-Done "Act 4 selesai: app-pool otomatis 2-4 node mengikuti pod yang Pending."
+    }
 }
 catch {
     Write-Host "`n❌ ERROR: $($_.Exception.Message)" -ForegroundColor Red
@@ -489,4 +547,6 @@ Write-Host "  3. ArgoCD sync otomatis -> rolling update tanpa downtime; footer s
 Write-Host "  4. Checkout beberapa order -> grafik order & omzet di Grafana ikut naik."
 Write-Host "  5. Stress test: ./deploy/stress-test.ps1 -Profile stress (atau spike) -> RPS, latensi & jumlah pod naik di Grafana."
 Write-Host "     Pantau autoscaling: kubectl get hpa ecommerce-rust -w   |   refresh storefront: nama pod di footer berganti."
+Write-Host "  6. Autoscaling node: ./deploy/stress-test.ps1 -Profile scale (±8 menit) -> pod Pending -> node app-pool bertambah."
+Write-Host "     Pantau: kubectl get nodes -L kubernetes.civo.com/civo-node-pool -w"
 Write-Host "(Alamat yang masih <pending> biasanya muncul 1-2 menit kemudian.)" -ForegroundColor DarkGray
