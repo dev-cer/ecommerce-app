@@ -79,7 +79,7 @@ git push ─▶ Jenkins ──────────────────�
 ```
 
 - `Jenkinsfile` — pipeline di atas. Build image memakai **Kaniko** karena agent Jenkins berjalan di dalam Kubernetes tanpa Docker daemon.
-- `k8s/` — manifest yang disinkronkan ArgoCD: Deployment, Service `ecommerce-rust-svc`, ServiceMonitor, dan dashboard Grafana.
+- `k8s/` — manifest yang disinkronkan ArgoCD: Deployment, Service `ecommerce-rust-svc`, ServiceMonitor, dan dua dashboard Grafana: **NusaMart · Live Demo** dan **Civo Quota & Kapasitas Klaster** (gauge ala halaman Quota Civo; dibuat dari `deploy/dashboards/civo_quota.py`, ubah kuota akun di variabel `QUOTA` lalu jalankan ulang skripnya).
 - `deploy/master-demo.ps1` — provisioning end-to-end: Terraform → ArgoCD → Jenkins (job dibuat otomatis via JCasC) → Prometheus/Grafana.
 
 ```powershell

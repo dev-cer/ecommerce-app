@@ -1,0 +1,1390 @@
+# Dashboard "Civo Quota & Kapasitas Klaster" (dibuat oleh deploy/dashboards/civo_quota.py, jangan edit manual).
+# Dimuat otomatis oleh sidecar Grafana kube-prometheus-stack (label grafana_dashboard).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: civo-quota-dashboard
+  labels:
+    grafana_dashboard: "1"
+data:
+  civo-quota.json: |
+    {
+      "title": "Civo Quota & Kapasitas Klaster",
+      "uid": "civo-quota",
+      "tags": [
+        "kcd",
+        "civo",
+        "capacity"
+      ],
+      "timezone": "browser",
+      "refresh": "10s",
+      "time": {
+        "from": "now-15m",
+        "to": "now"
+      },
+      "schemaVersion": 39,
+      "graphTooltip": 0,
+      "templating": {
+        "list": [
+          {
+            "name": "pool",
+            "label": "Node pool",
+            "type": "query",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "prometheus"
+            },
+            "query": {
+              "query": "label_values(kube_node_labels, label_kubernetes_civo_com_civo_node_pool)",
+              "refId": "pool"
+            },
+            "definition": "label_values(kube_node_labels, label_kubernetes_civo_com_civo_node_pool)",
+            "refresh": 2,
+            "multi": true,
+            "includeAll": true,
+            "current": {
+              "selected": true,
+              "text": [
+                "All"
+              ],
+              "value": [
+                "$__all"
+              ]
+            },
+            "sort": 1
+          }
+        ]
+      },
+      "panels": [
+        {
+          "id": 1,
+          "type": "row",
+          "title": "Kuota akun Civo · pemakaian klaster ini (batas = kuota akun di Civo → Settings → Quota)",
+          "collapsed": false,
+          "gridPos": {
+            "h": 1,
+            "w": 24,
+            "x": 0,
+            "y": 0
+          },
+          "panels": []
+        },
+        {
+          "id": 2,
+          "type": "gauge",
+          "title": "Instances (32)",
+          "description": "Jumlah node klaster ini dibanding kuota instance akun Civo.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "h": 7,
+            "w": 6,
+            "x": 0,
+            "y": 1
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "count(kube_node_info)",
+              "instant": true
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "none",
+              "min": 0,
+              "color": {
+                "mode": "thresholds"
+              },
+              "thresholds": {
+                "mode": "percentage",
+                "steps": [
+                  {
+                    "color": "#3fb27f",
+                    "value": null
+                  },
+                  {
+                    "color": "#f2a33a",
+                    "value": 75
+                  },
+                  {
+                    "color": "#e5484d",
+                    "value": 90
+                  }
+                ]
+              },
+              "max": 32
+            },
+            "overrides": []
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "showThresholdMarkers": false,
+            "showThresholdLabels": false,
+            "sizing": "auto",
+            "minVizHeight": 120,
+            "minVizWidth": 120,
+            "text": {
+              "valueSize": 40
+            }
+          }
+        },
+        {
+          "id": 3,
+          "type": "gauge",
+          "title": "CPUs (64)",
+          "description": "Total vCPU node klaster ini dibanding kuota CPU akun.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "h": 7,
+            "w": 6,
+            "x": 6,
+            "y": 1
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "sum(kube_node_status_capacity{resource=\"cpu\"})",
+              "instant": true
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "none",
+              "min": 0,
+              "color": {
+                "mode": "thresholds"
+              },
+              "thresholds": {
+                "mode": "percentage",
+                "steps": [
+                  {
+                    "color": "#3fb27f",
+                    "value": null
+                  },
+                  {
+                    "color": "#f2a33a",
+                    "value": 75
+                  },
+                  {
+                    "color": "#e5484d",
+                    "value": 90
+                  }
+                ]
+              },
+              "max": 64
+            },
+            "overrides": []
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "showThresholdMarkers": false,
+            "showThresholdLabels": false,
+            "sizing": "auto",
+            "minVizHeight": 120,
+            "minVizWidth": 120,
+            "text": {
+              "valueSize": 40
+            }
+          }
+        },
+        {
+          "id": 4,
+          "type": "gauge",
+          "title": "RAM (262GB)",
+          "description": "Total RAM node klaster ini dibanding kuota RAM akun.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "h": 7,
+            "w": 6,
+            "x": 12,
+            "y": 1
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "sum(kube_node_status_capacity{resource=\"memory\"})",
+              "instant": true
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "bytes",
+              "min": 0,
+              "color": {
+                "mode": "thresholds"
+              },
+              "thresholds": {
+                "mode": "percentage",
+                "steps": [
+                  {
+                    "color": "#3fb27f",
+                    "value": null
+                  },
+                  {
+                    "color": "#f2a33a",
+                    "value": 75
+                  },
+                  {
+                    "color": "#e5484d",
+                    "value": 90
+                  }
+                ]
+              },
+              "max": 281823674368,
+              "decimals": 0
+            },
+            "overrides": []
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "showThresholdMarkers": false,
+            "showThresholdLabels": false,
+            "sizing": "auto",
+            "minVizHeight": 120,
+            "minVizWidth": 120,
+            "text": {
+              "valueSize": 40
+            }
+          }
+        },
+        {
+          "id": 5,
+          "type": "gauge",
+          "title": "Disk (2000GB)",
+          "description": "Disk node + volume (PVC) klaster ini dibanding kuota disk akun.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "h": 7,
+            "w": 6,
+            "x": 18,
+            "y": 1
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "sum(node_filesystem_size_bytes{mountpoint=\"/\", fstype!~\"tmpfs|overlay\"}) + (sum(kube_persistentvolume_capacity_bytes) or vector(0))",
+              "instant": true
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "decbytes",
+              "min": 0,
+              "color": {
+                "mode": "thresholds"
+              },
+              "thresholds": {
+                "mode": "percentage",
+                "steps": [
+                  {
+                    "color": "#3fb27f",
+                    "value": null
+                  },
+                  {
+                    "color": "#f2a33a",
+                    "value": 75
+                  },
+                  {
+                    "color": "#e5484d",
+                    "value": 90
+                  }
+                ]
+              },
+              "max": 2000000000000,
+              "decimals": 0
+            },
+            "overrides": []
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "showThresholdMarkers": false,
+            "showThresholdLabels": false,
+            "sizing": "auto",
+            "minVizHeight": 120,
+            "minVizWidth": 120,
+            "text": {
+              "valueSize": 40
+            }
+          }
+        },
+        {
+          "id": 6,
+          "type": "gauge",
+          "title": "Volumes (16)",
+          "description": "Jumlah volume Civo (PersistentVolume) milik klaster ini.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "h": 7,
+            "w": 6,
+            "x": 0,
+            "y": 8
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "count(kube_persistentvolume_info) or vector(0)",
+              "instant": true
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "none",
+              "min": 0,
+              "color": {
+                "mode": "thresholds"
+              },
+              "thresholds": {
+                "mode": "percentage",
+                "steps": [
+                  {
+                    "color": "#3fb27f",
+                    "value": null
+                  },
+                  {
+                    "color": "#f2a33a",
+                    "value": 75
+                  },
+                  {
+                    "color": "#e5484d",
+                    "value": 90
+                  }
+                ]
+              },
+              "max": 16
+            },
+            "overrides": []
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "showThresholdMarkers": false,
+            "showThresholdLabels": false,
+            "sizing": "auto",
+            "minVizHeight": 120,
+            "minVizWidth": 120,
+            "text": {
+              "valueSize": 40
+            }
+          }
+        },
+        {
+          "id": 7,
+          "type": "gauge",
+          "title": "Load Balancers (16)",
+          "description": "Service type LoadBalancer = 1 load balancer + 1 IP publik Civo.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "h": 7,
+            "w": 6,
+            "x": 6,
+            "y": 8
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "count(kube_service_spec_type{type=\"LoadBalancer\"}) or vector(0)",
+              "instant": true
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "none",
+              "min": 0,
+              "color": {
+                "mode": "thresholds"
+              },
+              "thresholds": {
+                "mode": "percentage",
+                "steps": [
+                  {
+                    "color": "#3fb27f",
+                    "value": null
+                  },
+                  {
+                    "color": "#f2a33a",
+                    "value": 75
+                  },
+                  {
+                    "color": "#e5484d",
+                    "value": 90
+                  }
+                ]
+              },
+              "max": 16
+            },
+            "overrides": []
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "showThresholdMarkers": false,
+            "showThresholdLabels": false,
+            "sizing": "auto",
+            "minVizHeight": 120,
+            "minVizWidth": 120,
+            "text": {
+              "valueSize": 40
+            }
+          }
+        },
+        {
+          "id": 8,
+          "type": "gauge",
+          "title": "Pods berjalan / kapasitas",
+          "description": "Pod Running dibanding kapasitas pod seluruh node.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "h": 7,
+            "w": 6,
+            "x": 12,
+            "y": 8
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "100 * (count(max by (namespace, pod, node) (kube_pod_info{node!=\"\"}) * on (namespace, pod) group_left () max by (namespace, pod) (kube_pod_status_phase{phase=\"Running\"} == 1))) / (sum(kube_node_status_allocatable{resource=\"pods\"}))",
+              "instant": true
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percent",
+              "min": 0,
+              "color": {
+                "mode": "thresholds"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "#3fb27f",
+                    "value": null
+                  },
+                  {
+                    "color": "#f2a33a",
+                    "value": 75
+                  },
+                  {
+                    "color": "#e5484d",
+                    "value": 90
+                  }
+                ]
+              },
+              "max": 100,
+              "decimals": 0
+            },
+            "overrides": []
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "showThresholdMarkers": false,
+            "showThresholdLabels": false,
+            "sizing": "auto",
+            "minVizHeight": 120,
+            "minVizWidth": 120,
+            "text": {
+              "valueSize": 40
+            }
+          }
+        },
+        {
+          "id": 9,
+          "type": "gauge",
+          "title": "Disk node terpakai",
+          "description": "Pemakaian disk root seluruh node.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "h": 7,
+            "w": 6,
+            "x": 18,
+            "y": 8
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "100 * (1 - sum(node_filesystem_avail_bytes{mountpoint=\"/\", fstype!~\"tmpfs|overlay\"}) / sum(node_filesystem_size_bytes{mountpoint=\"/\", fstype!~\"tmpfs|overlay\"}))",
+              "instant": true
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percent",
+              "min": 0,
+              "color": {
+                "mode": "thresholds"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "#3fb27f",
+                    "value": null
+                  },
+                  {
+                    "color": "#f2a33a",
+                    "value": 75
+                  },
+                  {
+                    "color": "#e5484d",
+                    "value": 90
+                  }
+                ]
+              },
+              "max": 100,
+              "decimals": 0
+            },
+            "overrides": []
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "showThresholdMarkers": false,
+            "showThresholdLabels": false,
+            "sizing": "auto",
+            "minVizHeight": 120,
+            "minVizWidth": 120,
+            "text": {
+              "valueSize": 40
+            }
+          }
+        },
+        {
+          "id": 10,
+          "type": "row",
+          "title": "Kapasitas klaster (live) · dipesan = request pod, dipakai = pemakaian nyata",
+          "collapsed": false,
+          "gridPos": {
+            "h": 1,
+            "w": 24,
+            "x": 0,
+            "y": 15
+          },
+          "panels": []
+        },
+        {
+          "id": 11,
+          "type": "gauge",
+          "title": "CPU dipesan",
+          "description": "Jumlah CPU request pod aktif dibanding allocatable. Mendekati 100% = pod baru Pending.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "h": 7,
+            "w": 6,
+            "x": 0,
+            "y": 16
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "100 * (sum(kube_pod_container_resource_requests{resource=\"cpu\"} * on (namespace, pod) group_left () max by (namespace, pod) (kube_pod_status_phase{phase=~\"Pending|Running\"} == 1))) / (sum(kube_node_status_allocatable{resource=\"cpu\"}))",
+              "instant": true
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percent",
+              "min": 0,
+              "color": {
+                "mode": "thresholds"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "#3fb27f",
+                    "value": null
+                  },
+                  {
+                    "color": "#f2a33a",
+                    "value": 75
+                  },
+                  {
+                    "color": "#e5484d",
+                    "value": 90
+                  }
+                ]
+              },
+              "max": 100,
+              "decimals": 0
+            },
+            "overrides": []
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "showThresholdMarkers": false,
+            "showThresholdLabels": false,
+            "sizing": "auto",
+            "minVizHeight": 120,
+            "minVizWidth": 120,
+            "text": {
+              "valueSize": 40
+            }
+          }
+        },
+        {
+          "id": 12,
+          "type": "gauge",
+          "title": "CPU dipakai",
+          "description": "",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "h": 7,
+            "w": 6,
+            "x": 6,
+            "y": 16
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "100 * (sum(sum by (namespace, pod) (rate(container_cpu_usage_seconds_total{container!=\"\", image!=\"\"}[2m])))) / (sum(kube_node_status_allocatable{resource=\"cpu\"}))",
+              "instant": true
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percent",
+              "min": 0,
+              "color": {
+                "mode": "thresholds"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "#3fb27f",
+                    "value": null
+                  },
+                  {
+                    "color": "#f2a33a",
+                    "value": 75
+                  },
+                  {
+                    "color": "#e5484d",
+                    "value": 90
+                  }
+                ]
+              },
+              "max": 100,
+              "decimals": 0
+            },
+            "overrides": []
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "showThresholdMarkers": false,
+            "showThresholdLabels": false,
+            "sizing": "auto",
+            "minVizHeight": 120,
+            "minVizWidth": 120,
+            "text": {
+              "valueSize": 40
+            }
+          }
+        },
+        {
+          "id": 13,
+          "type": "gauge",
+          "title": "RAM dipesan",
+          "description": "Mendekati 100% = pod baru 'Insufficient memory'.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "h": 7,
+            "w": 6,
+            "x": 12,
+            "y": 16
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "100 * (sum(kube_pod_container_resource_requests{resource=\"memory\"} * on (namespace, pod) group_left () max by (namespace, pod) (kube_pod_status_phase{phase=~\"Pending|Running\"} == 1))) / (sum(kube_node_status_allocatable{resource=\"memory\"}))",
+              "instant": true
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percent",
+              "min": 0,
+              "color": {
+                "mode": "thresholds"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "#3fb27f",
+                    "value": null
+                  },
+                  {
+                    "color": "#f2a33a",
+                    "value": 75
+                  },
+                  {
+                    "color": "#e5484d",
+                    "value": 90
+                  }
+                ]
+              },
+              "max": 100,
+              "decimals": 0
+            },
+            "overrides": []
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "showThresholdMarkers": false,
+            "showThresholdLabels": false,
+            "sizing": "auto",
+            "minVizHeight": 120,
+            "minVizWidth": 120,
+            "text": {
+              "valueSize": 40
+            }
+          }
+        },
+        {
+          "id": 14,
+          "type": "gauge",
+          "title": "RAM dipakai",
+          "description": "Mendekati 100% = node MemoryPressure dan pod di-evict.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "h": 7,
+            "w": 6,
+            "x": 18,
+            "y": 16
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "100 * (sum(sum by (namespace, pod) (container_memory_working_set_bytes{container!=\"\", image!=\"\"}))) / (sum(kube_node_status_allocatable{resource=\"memory\"}))",
+              "instant": true
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percent",
+              "min": 0,
+              "color": {
+                "mode": "thresholds"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "#3fb27f",
+                    "value": null
+                  },
+                  {
+                    "color": "#f2a33a",
+                    "value": 75
+                  },
+                  {
+                    "color": "#e5484d",
+                    "value": 90
+                  }
+                ]
+              },
+              "max": 100,
+              "decimals": 0
+            },
+            "overrides": []
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "showThresholdMarkers": false,
+            "showThresholdLabels": false,
+            "sizing": "auto",
+            "minVizHeight": 120,
+            "minVizWidth": 120,
+            "text": {
+              "valueSize": 40
+            }
+          }
+        },
+        {
+          "id": 15,
+          "type": "row",
+          "title": "Node pool: $pool",
+          "collapsed": false,
+          "gridPos": {
+            "h": 1,
+            "w": 24,
+            "x": 0,
+            "y": 23
+          },
+          "panels": [],
+          "repeat": "pool"
+        },
+        {
+          "id": 16,
+          "type": "stat",
+          "title": "Nodes",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "h": 7,
+            "w": 4,
+            "x": 0,
+            "y": 24
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "count(max by (node) (kube_node_labels{label_kubernetes_civo_com_civo_node_pool=\"$pool\"}))",
+              "instant": true
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "none",
+              "decimals": 0,
+              "color": {
+                "mode": "fixed",
+                "fixedColor": "#3fb27f"
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "colorMode": "value",
+            "graphMode": "none",
+            "textMode": "value",
+            "justifyMode": "center",
+            "text": {
+              "valueSize": 64
+            }
+          }
+        },
+        {
+          "id": 17,
+          "type": "gauge",
+          "title": "CPU dipesan",
+          "description": "",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "h": 7,
+            "w": 4,
+            "x": 4,
+            "y": 24
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "100 * (sum((kube_pod_container_resource_requests{resource=\"cpu\"} * on (namespace, pod) group_left () max by (namespace, pod) (kube_pod_status_phase{phase=~\"Pending|Running\"} == 1)) * on (node) group_left () max by (node) (kube_node_labels{label_kubernetes_civo_com_civo_node_pool=\"$pool\"}))) / (sum(kube_node_status_allocatable{resource=\"cpu\"} * on (node) group_left () max by (node) (kube_node_labels{label_kubernetes_civo_com_civo_node_pool=\"$pool\"})))",
+              "instant": true
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percent",
+              "min": 0,
+              "color": {
+                "mode": "thresholds"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "#3fb27f",
+                    "value": null
+                  },
+                  {
+                    "color": "#f2a33a",
+                    "value": 75
+                  },
+                  {
+                    "color": "#e5484d",
+                    "value": 90
+                  }
+                ]
+              },
+              "max": 100,
+              "decimals": 0
+            },
+            "overrides": []
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "showThresholdMarkers": false,
+            "showThresholdLabels": false,
+            "sizing": "auto",
+            "minVizHeight": 120,
+            "minVizWidth": 120,
+            "text": {
+              "valueSize": 40
+            }
+          }
+        },
+        {
+          "id": 18,
+          "type": "gauge",
+          "title": "CPU dipakai",
+          "description": "",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "h": 7,
+            "w": 4,
+            "x": 8,
+            "y": 24
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "100 * (sum(sum by (namespace, pod) (rate(container_cpu_usage_seconds_total{container!=\"\", image!=\"\"}[2m])) * on (namespace, pod) group_left (node) max by (namespace, pod, node) (kube_pod_info{node!=\"\"}) * on (node) group_left () max by (node) (kube_node_labels{label_kubernetes_civo_com_civo_node_pool=\"$pool\"}))) / (sum(kube_node_status_allocatable{resource=\"cpu\"} * on (node) group_left () max by (node) (kube_node_labels{label_kubernetes_civo_com_civo_node_pool=\"$pool\"})))",
+              "instant": true
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percent",
+              "min": 0,
+              "color": {
+                "mode": "thresholds"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "#3fb27f",
+                    "value": null
+                  },
+                  {
+                    "color": "#f2a33a",
+                    "value": 75
+                  },
+                  {
+                    "color": "#e5484d",
+                    "value": 90
+                  }
+                ]
+              },
+              "max": 100,
+              "decimals": 0
+            },
+            "overrides": []
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "showThresholdMarkers": false,
+            "showThresholdLabels": false,
+            "sizing": "auto",
+            "minVizHeight": 120,
+            "minVizWidth": 120,
+            "text": {
+              "valueSize": 40
+            }
+          }
+        },
+        {
+          "id": 19,
+          "type": "gauge",
+          "title": "RAM dipesan",
+          "description": "",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "h": 7,
+            "w": 4,
+            "x": 12,
+            "y": 24
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "100 * (sum((kube_pod_container_resource_requests{resource=\"memory\"} * on (namespace, pod) group_left () max by (namespace, pod) (kube_pod_status_phase{phase=~\"Pending|Running\"} == 1)) * on (node) group_left () max by (node) (kube_node_labels{label_kubernetes_civo_com_civo_node_pool=\"$pool\"}))) / (sum(kube_node_status_allocatable{resource=\"memory\"} * on (node) group_left () max by (node) (kube_node_labels{label_kubernetes_civo_com_civo_node_pool=\"$pool\"})))",
+              "instant": true
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percent",
+              "min": 0,
+              "color": {
+                "mode": "thresholds"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "#3fb27f",
+                    "value": null
+                  },
+                  {
+                    "color": "#f2a33a",
+                    "value": 75
+                  },
+                  {
+                    "color": "#e5484d",
+                    "value": 90
+                  }
+                ]
+              },
+              "max": 100,
+              "decimals": 0
+            },
+            "overrides": []
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "showThresholdMarkers": false,
+            "showThresholdLabels": false,
+            "sizing": "auto",
+            "minVizHeight": 120,
+            "minVizWidth": 120,
+            "text": {
+              "valueSize": 40
+            }
+          }
+        },
+        {
+          "id": 20,
+          "type": "gauge",
+          "title": "RAM dipakai",
+          "description": "",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "h": 7,
+            "w": 4,
+            "x": 16,
+            "y": 24
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "100 * (sum(sum by (namespace, pod) (container_memory_working_set_bytes{container!=\"\", image!=\"\"}) * on (namespace, pod) group_left (node) max by (namespace, pod, node) (kube_pod_info{node!=\"\"}) * on (node) group_left () max by (node) (kube_node_labels{label_kubernetes_civo_com_civo_node_pool=\"$pool\"}))) / (sum(kube_node_status_allocatable{resource=\"memory\"} * on (node) group_left () max by (node) (kube_node_labels{label_kubernetes_civo_com_civo_node_pool=\"$pool\"})))",
+              "instant": true
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percent",
+              "min": 0,
+              "color": {
+                "mode": "thresholds"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "#3fb27f",
+                    "value": null
+                  },
+                  {
+                    "color": "#f2a33a",
+                    "value": 75
+                  },
+                  {
+                    "color": "#e5484d",
+                    "value": 90
+                  }
+                ]
+              },
+              "max": 100,
+              "decimals": 0
+            },
+            "overrides": []
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "showThresholdMarkers": false,
+            "showThresholdLabels": false,
+            "sizing": "auto",
+            "minVizHeight": 120,
+            "minVizWidth": 120,
+            "text": {
+              "valueSize": 40
+            }
+          }
+        },
+        {
+          "id": 21,
+          "type": "gauge",
+          "title": "Pods",
+          "description": "",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "h": 7,
+            "w": 4,
+            "x": 20,
+            "y": 24
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "100 * (count(max by (namespace, pod, node) (kube_pod_info{node!=\"\"}) * on (namespace, pod) group_left () max by (namespace, pod) (kube_pod_status_phase{phase=\"Running\"} == 1) * on (node) group_left () max by (node) (kube_node_labels{label_kubernetes_civo_com_civo_node_pool=\"$pool\"}))) / (sum(kube_node_status_allocatable{resource=\"pods\"} * on (node) group_left () max by (node) (kube_node_labels{label_kubernetes_civo_com_civo_node_pool=\"$pool\"})))",
+              "instant": true
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percent",
+              "min": 0,
+              "color": {
+                "mode": "thresholds"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "#3fb27f",
+                    "value": null
+                  },
+                  {
+                    "color": "#f2a33a",
+                    "value": 75
+                  },
+                  {
+                    "color": "#e5484d",
+                    "value": 90
+                  }
+                ]
+              },
+              "max": 100,
+              "decimals": 0
+            },
+            "overrides": []
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "showThresholdMarkers": false,
+            "showThresholdLabels": false,
+            "sizing": "auto",
+            "minVizHeight": 120,
+            "minVizWidth": 120,
+            "text": {
+              "valueSize": 40
+            }
+          }
+        }
+      ]
+    }
