@@ -95,15 +95,15 @@ Hardening di aplikasi: Content-Security-Policy ketat (tanpa inline script/style)
 
 ```bash
 k6 run -e BASE_URL=http://localhost:8080 -e PROFILE=smoke  tests/load/stress.js   # 30 detik, dipakai di CI
-k6 run -e BASE_URL=http://localhost:8080 -e PROFILE=stress tests/load/stress.js   # naik bertahap ke 300 VU
-k6 run -e BASE_URL=http://localhost:8080 -e PROFILE=spike  tests/load/stress.js   # lonjakan 400 VU ditahan 2 menit
+k6 run -e BASE_URL=http://localhost:8080 -e PROFILE=spike  tests/load/stress.js   # ±1,5 menit: lonjakan 300 VU + rekomendasi (CPU)
+k6 run -e BASE_URL=http://localhost:8080 -e PROFILE=stress tests/load/stress.js   # ±2 menit: naik bertahap ke 300 VU
 ```
 
-Di klaster (tanpa perlu k6 di laptop): `./deploy/stress-test.ps1 -Profile stress`. Script k6 dijalankan sebagai Job di system-pool, sementara dashboard Grafana menampilkan RPS, latensi p50/p95/p99, traffic per status, pemakaian PVC PostgreSQL, CPU, dan **jumlah replika HPA yang naik-turun** (`kubectl get hpa ecommerce-rust -w`).
+Di klaster (tanpa perlu k6 di laptop): `./deploy/stress-test.ps1` (default `spike`, ±1,5 menit: replika HPA naik dalam ±30 detik). Script k6 dijalankan sebagai Job di system-pool, sementara dashboard Grafana menampilkan RPS, latensi p50/p95/p99, traffic per status, pemakaian PVC PostgreSQL, CPU, dan **jumlah replika HPA yang naik-turun** (`kubectl get hpa ecommerce-rust -w`).
 
-**Autoscaling sampai node** (`-Profile scale`, ±8 menit): 600 user + endpoint rekomendasi yang berat di CPU. HPA naik sampai 25 pod; karena tidak muat di 2 node `app-pool`, sebagian pod `Pending`, lalu **Cluster Autoscaler** (ACT 4 di `master-demo.ps1`, butuh API key Civo di `$env:CIVO_TOKEN` atau konfigurasi `civo` CLI) menambah node `app-pool` (maks. 4). Setelah beban turun, pod dan node dilepas lagi. Pantau di terminal kedua dengan `./deploy/watch-scale.ps1` (CPU vs target, replika HPA, pod `Pending`, node `app-pool`, event `TriggeredScaleUp`). Request CPU pod 250m membuat 2 node `app-pool` hanya muat ±12 pod, jadi beban ±0,9 core saja sudah cukup memicu node baru.
+**Autoscaling sampai node** (`-Profile scale`, ±5 menit): 600 user + endpoint rekomendasi yang berat di CPU. HPA naik sampai 25 pod; karena tidak muat di 2 node `app-pool`, sebagian pod `Pending`, lalu **Cluster Autoscaler** (ACT 4 di `master-demo.ps1`, butuh API key Civo di `$env:CIVO_TOKEN` atau konfigurasi `civo` CLI) menambah node `app-pool` (maks. 4). Setelah beban turun, pod dan node dilepas lagi. Pantau di terminal kedua dengan `./deploy/watch-scale.ps1` (CPU vs target, replika HPA, pod `Pending`, node `app-pool`, event `TriggeredScaleUp`). Request CPU pod 250m membuat 2 node `app-pool` hanya muat ±12 pod, jadi beban ±0,9 core saja sudah cukup memicu node baru.
 
-Threshold: error < 1%, p95 baca < 200 ms (smoke) / 500 ms (stress).
+Threshold: error < 1%, p95 baca < 200 ms (smoke) / 500 ms (stress). Profil `spike` & `scale` sengaja melewati kapasitas sesaat sebelum pod/node baru siap, jadi batasnya lebih longgar (error < 5%, p95 < 3 detik).
 
 ## Bongkar demo (bersih sampai network, tanpa langkah manual)
 
