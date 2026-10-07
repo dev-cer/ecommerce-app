@@ -40,8 +40,25 @@ header {
 .hero p { margin: 0; opacity: .92; max-width: 46ch; }
 .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
 .stat { background: rgba(255,255,255,.18); border-radius: 14px; padding: 12px; text-align: center; }
+.stat {
+  position: relative; overflow: hidden;
+  transition: background .4s, box-shadow .4s, transform .4s;
+}
 .stat b { display: block; font-size: 22px; font-variant-numeric: tabular-nums; }
 .stat small { opacity: .9; }
+.stat em { display: block; margin-top: 2px; font-size: 11px; font-style: normal; opacity: .8; white-space: nowrap; }
+/* HPA sedang scale-up/down: kartu berdenyut sampai replika = target. */
+.stat.scaling { background: rgba(255,255,255,.3); animation: breathe 1.2s ease-in-out infinite; }
+.stat.scaling em { opacity: 1; font-weight: 700; }
+/* Traffic tinggi (≥50 req/detik). */
+.stat.hot { background: rgba(255,255,255,.28); box-shadow: inset 0 0 0 2px rgba(255,255,255,.55); }
+/* Angka baru saja berubah. */
+.stat.pulse b { animation: pop .6s ease-out; }
+@keyframes breathe { 50% { box-shadow: 0 0 0 4px rgba(255,255,255,.35); transform: translateY(-2px); } }
+@keyframes pop { 30% { transform: scale(1.25); } }
+@media (prefers-reduced-motion: reduce) {
+  .stat.scaling, .stat.pulse b { animation: none; }
+}
 
 .chips { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 20px; }
 .chip {

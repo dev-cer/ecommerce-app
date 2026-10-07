@@ -84,6 +84,15 @@ async fn catalog_search_and_category_filter() {
 }
 
 #[tokio::test]
+async fn live_stats_unavailable_without_prometheus() {
+    // Test tidak men-set PROMETHEUS_URL: storefront harus bisa fallback ke statistik katalog.
+    let (status, _, body) = send(&app(), get("/api/live")).await;
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+    let body: Value = serde_json::from_slice(&body).unwrap();
+    assert!(body["error"].is_string());
+}
+
+#[tokio::test]
 async fn product_detail_and_not_found() {
     let app = app();
     assert_eq!(json(&app, "/api/products/2").await["id"], 2);
