@@ -11,3 +11,5 @@
 *.tfvars
 *.tfplan
 crash.log
+/dist
+/ci-out

@@ -2,3 +2,4 @@ target
 reports
 .git
 .env
+ci-out
