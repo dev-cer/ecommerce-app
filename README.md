@@ -143,3 +143,5 @@ Jenkinsfile      # pipeline CI/DevSecOps
 ```
 
 Di Kubernetes, password database disimpan di Secret `postgres-credentials` yang dibuat sekali oleh `deploy/master-demo.ps1` (password acak, tidak pernah masuk Git). NetworkPolicy membatasi akses ke PostgreSQL hanya dari pod aplikasi.
+
+Update untuk simulasi KCD Bandung 2026
