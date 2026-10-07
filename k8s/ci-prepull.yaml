@@ -58,3 +58,32 @@ spec:
           requests: {cpu: 5m, memory: 8Mi}
           limits: {cpu: 100m, memory: 64Mi}
       terminationGracePeriodSeconds: 0
+---
+# Image k6 di system-pool (tempat job deploy/stress-test.ps1 berjalan): stress test langsung mulai.
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: k6-image-prepull
+  labels: {app: k6-image-prepull}
+spec:
+  selector:
+    matchLabels: {app: k6-image-prepull}
+  template:
+    metadata:
+      labels: {app: k6-image-prepull}
+    spec:
+      nodeSelector: {kubernetes.civo.com/civo-node-pool: system-pool}
+      initContainers:
+      - name: k6
+        image: grafana/k6:2.3.0
+        command: [k6, version]
+        resources:
+          requests: {cpu: 5m, memory: 8Mi}
+          limits: {cpu: 100m, memory: 64Mi}
+      containers:
+      - name: pause
+        image: registry.k8s.io/pause:3.10
+        resources:
+          requests: {cpu: 5m, memory: 8Mi}
+          limits: {cpu: 100m, memory: 64Mi}
+      terminationGracePeriodSeconds: 0

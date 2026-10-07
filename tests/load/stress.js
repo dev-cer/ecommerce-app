@@ -1,9 +1,9 @@
 // k6 load / stress test NusaMart.
 //
 //   k6 run -e BASE_URL=http://localhost:8080 -e PROFILE=smoke  tests/load/stress.js   # CI gate (±30 detik)
-//   k6 run -e BASE_URL=http://<ip-lb>       -e PROFILE=stress tests/load/stress.js   # live demo (±4 menit)
-//   k6 run -e BASE_URL=http://<ip-lb>       -e PROFILE=spike  tests/load/stress.js   # lonjakan mendadak (±2,5 menit)
-//   k6 run -e BASE_URL=http://<ip-lb>       -e PROFILE=scale  tests/load/stress.js   # autoscaling node (±8 menit)
+//   k6 run -e BASE_URL=http://<ip-lb>       -e PROFILE=spike  tests/load/stress.js   # demo HPA cepat (±1,5 menit)
+//   k6 run -e BASE_URL=http://<ip-lb>       -e PROFILE=stress tests/load/stress.js   # naik bertahap (±2 menit)
+//   k6 run -e BASE_URL=http://<ip-lb>       -e PROFILE=scale  tests/load/stress.js   # autoscaling node (±5 menit)
 //
 // Alur tiap virtual user meniru pengunjung: buka toko → lihat katalog → cari produk → buka detail produk.
 
@@ -19,27 +19,26 @@ const PROFILES = {
     { duration: "20s", target: 10 },
   ],
   stress: [
-    { duration: "30s", target: 50 },
-    { duration: "1m", target: 150 },
-    { duration: "1m30s", target: 300 },
-    { duration: "1m", target: 300 },
-    { duration: "30s", target: 0 },
-  ],
-  // Puncak ditahan 2 menit: HPA butuh ±30-60 detik (metrics-server + sinkronisasi HPA + start pod)
-  // untuk bereaksi, jadi puncak yang lebih singkat sudah selesai sebelum pod baru muncul.
-  spike: [
-    { duration: "10s", target: 10 },
-    { duration: "10s", target: 400 },
-    { duration: "2m", target: 400 },
+    { duration: "20s", target: 100 },
+    { duration: "40s", target: 300 },
+    { duration: "40s", target: 300 },
     { duration: "20s", target: 0 },
   ],
-  // Beban berat (+ rekomendasi yang mahal di CPU) yang melebihi kapasitas app-pool: HPA menambah pod
-  // sampai ada yang Pending, lalu Cluster Autoscaler menambah node Civo (±2-4 menit). Puncak ditahan
-  // 6 menit agar node baru sempat bergabung dan pod Pending terjadwal di depan audience.
+  // Demo singkat: lonjakan langsung + rekomendasi yang berat di CPU, sehingga CPU melewati target HPA
+  // dalam hitungan detik. HPA bereaksi ±15-30 detik (metrics-server + sinkronisasi HPA), pod baru siap
+  // ±5 detik kemudian; puncak 1 menit cukup untuk melihat replika naik di Grafana.
+  spike: [
+    { duration: "5s", target: 20 },
+    { duration: "10s", target: 300 },
+    { duration: "1m", target: 300 },
+    { duration: "10s", target: 0 },
+  ],
+  // Beban berat yang melebihi kapasitas app-pool: HPA menambah pod sampai ada yang Pending, lalu
+  // Cluster Autoscaler menambah node Civo (±2-3 menit). Puncak 4 menit agar node baru sempat bergabung.
   scale: [
-    { duration: "1m", target: 600 },
-    { duration: "6m", target: 600 },
-    { duration: "1m", target: 0 },
+    { duration: "30s", target: 600 },
+    { duration: "4m", target: 600 },
+    { duration: "30s", target: 0 },
   ],
 };
 
@@ -54,7 +53,9 @@ const DEFAULT_THRESHOLDS = {
   checks: ["rate>0.99"],
 };
 
-// Profil scale sengaja mendorong aplikasi melewati kapasitas node; latensi naik sampai node baru siap.
+// Profil spike & scale sengaja mendorong aplikasi melewati kapasitas pod/node yang ada; latensi naik
+// sebentar sampai pod/node baru siap, jadi batasnya lebih longgar.
+const HEAVY = PROFILE === "spike" || PROFILE === "scale";
 const SCALE_THRESHOLDS = {
   http_req_failed: ["rate<0.05"],
   "http_req_duration{type:read}": ["p(95)<3000"],
@@ -66,7 +67,7 @@ export const options = {
   scenarios: {
     shoppers: { executor: "ramping-vus", startVUs: 0, stages: PROFILES[PROFILE], gracefulRampDown: "10s" },
   },
-  thresholds: PROFILE === "scale" ? SCALE_THRESHOLDS : DEFAULT_THRESHOLDS,
+  thresholds: HEAVY ? SCALE_THRESHOLDS : DEFAULT_THRESHOLDS,
   summaryTrendStats: ["avg", "med", "p(90)", "p(95)", "max"],
 };
 
@@ -96,7 +97,7 @@ export default function ({ productIds }) {
     check(http.get(`${BASE_URL}/api/products/${productId}`, read), { "detail 200": (r) => r.status === 200 });
   });
 
-  if (PROFILE === "scale") {
+  if (HEAVY) {
     group("rekomendasi", () => {
       for (let i = 0; i < 2; i++) {
         const productId = productIds[Math.floor(Math.random() * productIds.length)];

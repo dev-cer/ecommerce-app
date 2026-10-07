@@ -7,16 +7,16 @@
     sehingga beban tidak dibatasi bandwidth laptop dan grafik CPU aplikasi di Grafana tetap bersih.
 
 .EXAMPLE
-    ./stress-test.ps1                 # profil stress (±4 menit, sampai 300 virtual user)
-    ./stress-test.ps1 -Profile spike  # lonjakan mendadak 400 virtual user, ditahan 2 menit (±2,5 menit)
-    ./stress-test.ps1 -Profile smoke  # cek cepat 30 detik
-    ./stress-test.ps1 -Profile scale  # ±8 menit: HPA mentok, pod Pending, Cluster Autoscaler menambah node
+    ./stress-test.ps1                  # spike (default): ±1,5 menit, 300 user + rekomendasi berat CPU -> pod HPA naik
+    ./stress-test.ps1 -Profile stress  # naik bertahap sampai 300 user (±2 menit)
+    ./stress-test.ps1 -Profile smoke   # cek cepat 30 detik
+    ./stress-test.ps1 -Profile scale   # ±5 menit: HPA mentok, pod Pending, Cluster Autoscaler menambah node
 #>
 [CmdletBinding()]
 param(
     [Alias("Profile")]
     [ValidateSet("smoke", "stress", "spike", "scale")]
-    [string]$LoadProfile = "stress",
+    [string]$LoadProfile = "spike",
     [string]$Target = "http://ecommerce-rust-svc.default.svc.cluster.local",
     [string]$Namespace = "loadtest"
 )

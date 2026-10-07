@@ -606,8 +606,8 @@ Write-Host "  1. Ubah kode (mis. judul hero di static/index.html), commit & push
 Write-Host "  2. Jenkins (±5-8 menit): test (+PostgreSQL) & Trivy -> ZAP | k6 | Kaniko -> Trivy image -> update manifest."
 Write-Host "  3. ArgoCD sync otomatis -> rolling update tanpa downtime; footer storefront menampilkan build baru."
 Write-Host "  4. Klik 'Lihat mirip' di storefront -> rekomendasi dihitung server; data katalog di PostgreSQL (PVC Civo Volume)."
-Write-Host "  5. Stress test: ./deploy/stress-test.ps1 -Profile stress (atau spike) -> RPS, latensi & jumlah pod naik di Grafana."
+Write-Host "  5. Stress test: ./deploy/stress-test.ps1 (spike ±1,5 menit) -> RPS, latensi & jumlah pod naik di Grafana."
 Write-Host "     Pantau autoscaling: kubectl get hpa ecommerce-rust -w   |   refresh storefront: nama pod di footer berganti."
-Write-Host "  6. Autoscaling node: ./deploy/stress-test.ps1 -Profile scale (±8 menit) -> pod Pending -> node app-pool bertambah."
+Write-Host "  6. Autoscaling node: ./deploy/stress-test.ps1 -Profile scale (±5 menit) -> pod Pending -> node app-pool bertambah."
 Write-Host "     Pantau: kubectl get nodes -L kubernetes.civo.com/civo-node-pool -w"
 Write-Host "(Alamat yang masih <pending> biasanya muncul 1-2 menit kemudian.)" -ForegroundColor DarkGray
