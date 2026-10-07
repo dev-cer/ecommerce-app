@@ -240,6 +240,24 @@ try {
     if (-not $GitHubUser -or -not $GitHubToken) {
         throw 'Set $env:GITHUB_USER dan $env:GITHUB_TOKEN terlebih dahulu (jangan tulis token di skrip).'
     }
+    # Kaniko gagal push di tengah build ("DENIED ... does not match expected scopes") bila token tidak punya
+    # write:packages. Cek di awal: PAT classic melaporkan scope-nya di header X-OAuth-Scopes.
+    $scopes = $null
+    try {
+        $resp = Invoke-WebRequest -UseBasicParsing -Uri "https://api.github.com/user" `
+            -Headers @{ Authorization = "token $GitHubToken"; "User-Agent" = "kcd-master-demo" }
+        $scopes = "$($resp.Headers['X-OAuth-Scopes'])"
+    } catch {
+        # 401 = token salah/kedaluwarsa; selain itu (jaringan) hanya peringatan agar demo tetap jalan.
+        if ("$($_.Exception.Message)" -match '401|Unauthorized') { throw "GITHUB_TOKEN ditolak GitHub (401): token salah atau kedaluwarsa." }
+        Write-Host "⚠️  Tidak bisa memverifikasi GITHUB_TOKEN ke api.github.com: $($_.Exception.Message)" -ForegroundColor Yellow
+    }
+    if ($null -ne $scopes) {
+        if ($scopes -notmatch 'write:packages') {
+            throw "GITHUB_TOKEN tidak punya scope write:packages (scope: '$scopes'). Buat PAT *classic* dengan scope repo + write:packages (fine-grained token tidak bisa push ke GHCR), lalu set ulang `$env:GITHUB_TOKEN."
+        }
+        Write-Info "GITHUB_TOKEN ok (scope: $scopes)"
+    }
 
     # ---------------------------------------------------------
     # ACT -1: Infrastructure as Code (Terraform)
@@ -585,9 +603,9 @@ foreach ($name in $access.Keys) {
 
 Write-Host "`nSkenario live demo:" -ForegroundColor Cyan
 Write-Host "  1. Ubah kode (mis. judul hero di static/index.html), commit & push ke '$AppBranch'."
-Write-Host "  2. Jenkins: lint + unit/security test + Trivy -> ZAP (DAST) + k6 -> Kaniko -> Trivy image -> update manifest."
+Write-Host "  2. Jenkins (±5-8 menit): test (+PostgreSQL) & Trivy -> ZAP | k6 | Kaniko -> Trivy image -> update manifest."
 Write-Host "  3. ArgoCD sync otomatis -> rolling update tanpa downtime; footer storefront menampilkan build baru."
-Write-Host "  4. Checkout beberapa order -> grafik order & omzet di Grafana ikut naik."
+Write-Host "  4. Klik 'Lihat mirip' di storefront -> rekomendasi dihitung server; data katalog di PostgreSQL (PVC Civo Volume)."
 Write-Host "  5. Stress test: ./deploy/stress-test.ps1 -Profile stress (atau spike) -> RPS, latensi & jumlah pod naik di Grafana."
 Write-Host "     Pantau autoscaling: kubectl get hpa ecommerce-rust -w   |   refresh storefront: nama pod di footer berganti."
 Write-Host "  6. Autoscaling node: ./deploy/stress-test.ps1 -Profile scale (±8 menit) -> pod Pending -> node app-pool bertambah."

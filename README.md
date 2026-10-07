@@ -1,55 +1,46 @@
 # 🛒 NusaMart — E-commerce Demo
 
-Storefront + REST API dalam **satu binary Rust** (Axum + Tokio) dengan **PostgreSQL**. Siap multi-replika dan autoscaling di Kubernetes, tapi tetap bisa jalan tanpa database untuk demo cepat.
+Katalog produk sampel + REST API dalam **satu binary Rust** (Axum + Tokio) dengan **PostgreSQL** di atas PVC (Civo Volume). Sengaja ringkas: dependency minimal (`tokio-postgres`, tanpa ORM/macro) sehingga build dingin di CI hanya ±1–2 menit.
 
 ## Jalankan
 
 ```bash
 docker compose up --build   # app + PostgreSQL → http://localhost:8080
-cargo run                   # tanpa database (penyimpanan in-memory, 1 replika saja)
+cargo run                   # tanpa database (katalog in-memory)
 ```
 
 | Env | Default | Keterangan |
 |---|---|---|
-| `DATABASE_URL` | – | Jika di-set, pakai PostgreSQL (migrasi & seed katalog otomatis saat start) |
-| `DB_MAX_CONNECTIONS` | `10` | Ukuran pool koneksi per pod |
+| `DATABASE_URL` | – | Jika di-set, pakai PostgreSQL (skema & seed katalog otomatis saat start) |
 | `PORT` | `8080` | Port HTTP |
-| `RESTOCK_INTERVAL_SECS` | `60` | Interval restock otomatis, `0` = mati |
+| `RECO_WORK` | `100000` | Berat komputasi rekomendasi (beban CPU untuk demo autoscaling) |
 | `APP_VERSION` | `dev` | Tag build (diisi CI), tampil di footer |
 
 ## Penyimpanan & skalabilitas
 
-- **PostgreSQL** (`src/store/postgres.rs`) menyimpan produk, order, dan item order. Skema ada di `migrations/`.
-- Order diproses dalam **satu transaksi**: stok dikurangi dengan `UPDATE … WHERE stock >= qty`, sehingga banyak pod yang melayani order bersamaan **tidak pernah menjual melebihi stok**. Constraint `CHECK (stock >= 0)` menjadi pengaman terakhir. Baris diproses berurutan per id produk untuk mencegah deadlock.
-- Karena state tidak lagi di memori pod, aplikasi berjalan **2–25 replika dengan HPA** (`k8s/hpa.yaml`, target CPU 30%).
+- **PostgreSQL** (`src/store.rs`, StatefulSet di `k8s/postgres.yaml`) menyimpan katalog di **PVC 5 Gi (Civo Volume)**: data tetap ada walau pod database di-restart atau pindah node. Skema `migrations/0001_init.sql` idempotent; katalog di-seed hanya bila tabel kosong.
+- Satu koneksi per pod (tokio-postgres mem-pipeline query) yang dibuat ulang otomatis bila putus.
+- Aplikasi stateless, sehingga berjalan **2–25 replika dengan HPA** (`k8s/hpa.yaml`, target CPU 30%).
 - `/health` = liveness (proses hidup); `/ready` = readiness (database terjangkau). Pod tanpa koneksi DB otomatis dikeluarkan dari load balancer.
-- Tanpa `DATABASE_URL`, aplikasi memakai store in-memory (`src/store/memory.rs`) dengan perilaku yang sama. Ini praktis untuk dev, tapi hanya untuk 1 replika.
-
-Test berjalan untuk kedua backend:
+- Tanpa `DATABASE_URL`, katalog dibaca dari memori dengan perilaku yang sama (praktis untuk dev).
 
 ```bash
 cargo test                                                                  # in-memory
 TEST_DATABASE_URL=postgres://postgres@localhost:5432/postgres cargo test    # + PostgreSQL
 ```
 
-Dengan PostgreSQL, tiap test membuat database sementara sendiri, termasuk test **dua replika** yang memproses 60 order paralel untuk stok 6.
-
 ## Alur demo (± 3 menit)
 
-1. Buka `http://localhost:8080` — tunjukkan katalog, filter kategori, dan pencarian.
-2. Tambahkan beberapa produk ke keranjang, atur jumlahnya, lalu checkout.
-3. Perhatikan statistik di banner (order, item terjual, omzet) dan stok produk langsung berubah.
-4. Tunjukkan API-nya langsung:
+1. Buka storefront — tunjukkan katalog, filter kategori, dan pencarian (query ke PostgreSQL).
+2. Klik **Lihat mirip** → rekomendasi dihitung di server (beban CPU yang dipakai demo autoscaling).
+3. Footer & kotak "Pod" menampilkan build dan pod yang melayani; refresh → pod berganti (load balancing).
+4. Grafana: panel **Data PostgreSQL (PVC)** menunjukkan pemakaian volume database.
 
 ```bash
-curl localhost:8080/api/products?category=makanan
-curl localhost:8080/api/stats
-curl -X POST localhost:8080/api/orders \
-  -H 'content-type: application/json' \
-  -d '{"customer":"Budi","items":[{"product_id":1,"quantity":2}]}'
+curl localhost:8080/api/products?category=Makanan
+curl "localhost:8080/api/products?q=kopi"
+curl "localhost:8080/api/recommendations?product_id=1"
 ```
-
-5. Coba pesan melebihi stok → API menolak dengan `409 Conflict`.
 
 ## API
 
@@ -60,20 +51,18 @@ curl -X POST localhost:8080/api/orders \
 | GET    | `/ready`              | Readiness: 200 jika database terjangkau      |
 | GET    | `/api/products`       | Daftar produk (`?category=` & `?q=` opsional) |
 | GET    | `/api/products/{id}`  | Detail produk                                |
-| GET    | `/api/orders`         | Daftar order (terbaru dulu)                  |
-| POST   | `/api/orders`         | Buat order — validasi stok, all-or-nothing   |
-| GET    | `/api/stats`          | Ringkasan order, item terjual, omzet         |
 | GET    | `/api/recommendations?product_id=` | Rekomendasi produk (CPU-berat ±3 ms, beban demo autoscaling) |
-| GET    | `/metrics`            | Metrik Prometheus (bisnis, request HTTP, histogram latensi) |
+| GET    | `/metrics`            | Metrik Prometheus (build, request HTTP, histogram latensi) |
 
 ## CI/CD & GitOps (KCD Bandung 2026)
 
 ```
-git push ─▶ Jenkins ────────────────────────────────────────────────────────▶ GitHub (k8s/) ─▶ ArgoCD ─▶ Civo K8s
-            ├─ Lint + test (cargo, memory & Postgres) + build release ┐ paralel     commit tag      sync     rolling update
-            ├─ SCA & secret scan (Trivy fs)                           ┘             [skip ci]
-            ├─ Server sementara ─▶ DAST (ZAP baseline) ─▶ k6 smoke   ┐ paralel
-            ├─ Image (Kaniko, kemas binary) ─▶ Trivy image (tarball) ┘
+git push ─▶ Jenkins (target < 10 menit, cache dingin) ─────────────────────▶ GitHub (k8s/) ─▶ ArgoCD ─▶ Civo K8s
+            ├─ Build & Test: fmt + test (memory & PostgreSQL) + binary release ┐ paralel   commit tag   sync   rolling update
+            ├─ SCA & secret scan (Trivy fs)                                    ┘           [skip ci]
+            ├─ DAST (ZAP baseline) ┐
+            ├─ Load test (k6 smoke) ├ paralel, terhadap server sementara + PostgreSQL sidecar
+            ├─ Image (Kaniko) ─▶ Trivy image (tarball) ┘
             └─ GitOps: update manifest (hanya jika semua gate lolos)
 ```
 
@@ -95,12 +84,12 @@ Footer storefront menampilkan `build <tag> · pod <nama>`, jadi audience bisa me
 
 | Lapisan | Alat | Yang dicek |
 |---|---|---|
-| Unit/integration test | `cargo test` (`src/tests.rs`) | Header keamanan, validasi input, overflow jumlah, payload raksasa (413), content-type salah (415), fuzzing path/query, order all-or-nothing, **50 order paralel tidak pernah oversell** |
+| Unit/integration test | `cargo test` (`src/tests.rs`) | Header keamanan, method tulis ditolak (405), fuzzing path/query, input SQL injection tetap jadi teks pencarian (query berparameter), integrasi PostgreSQL |
 | SCA & secret | Trivy `fs` | CVE di `Cargo.lock`, token/secret yang ter-commit |
 | DAST | OWASP ZAP baseline | Scan aplikasi yang berjalan; aturan di `.zap/rules.tsv` (CSP, anti-clickjacking, nosniff = FAIL) |
 | Container | Trivy `image` | CVE CRITICAL di image final |
 
-Hardening di aplikasi: Content-Security-Policy ketat (tanpa inline script/style), `X-Frame-Options`, `nosniff`, `Permissions-Policy`, batas body 16 KB, timeout request 10 detik, batas panjang nama, jumlah item, dan baris order. Container berjalan non-root dengan root filesystem read-only.
+Hardening di aplikasi: Content-Security-Policy ketat (tanpa inline script/style), `X-Frame-Options`, `nosniff`, `Permissions-Policy`; API hanya baca (GET) dengan query berparameter. Container berjalan non-root dengan root filesystem read-only.
 
 ## Stress test (k6)
 
@@ -110,11 +99,11 @@ k6 run -e BASE_URL=http://localhost:8080 -e PROFILE=stress tests/load/stress.js 
 k6 run -e BASE_URL=http://localhost:8080 -e PROFILE=spike  tests/load/stress.js   # lonjakan 400 VU ditahan 2 menit
 ```
 
-Di klaster (tanpa perlu k6 di laptop): `./deploy/stress-test.ps1 -Profile stress`. Script k6 dijalankan sebagai Job di system-pool, sementara dashboard Grafana menampilkan RPS, latensi p50/p95/p99, traffic per status, stok, CPU, dan **jumlah replika HPA yang naik-turun** (`kubectl get hpa ecommerce-rust -w`).
+Di klaster (tanpa perlu k6 di laptop): `./deploy/stress-test.ps1 -Profile stress`. Script k6 dijalankan sebagai Job di system-pool, sementara dashboard Grafana menampilkan RPS, latensi p50/p95/p99, traffic per status, pemakaian PVC PostgreSQL, CPU, dan **jumlah replika HPA yang naik-turun** (`kubectl get hpa ecommerce-rust -w`).
 
 **Autoscaling sampai node** (`-Profile scale`, ±8 menit): 600 user + endpoint rekomendasi yang berat di CPU. HPA naik sampai 25 pod; karena tidak muat di 2 node `app-pool`, sebagian pod `Pending`, lalu **Cluster Autoscaler** (ACT 4 di `master-demo.ps1`, butuh API key Civo di `$env:CIVO_TOKEN` atau konfigurasi `civo` CLI) menambah node `app-pool` (maks. 4). Setelah beban turun, pod dan node dilepas lagi. Pantau di terminal kedua dengan `./deploy/watch-scale.ps1` (CPU vs target, replika HPA, pod `Pending`, node `app-pool`, event `TriggeredScaleUp`). Request CPU pod 250m membuat 2 node `app-pool` hanya muat ±12 pod, jadi beban ±0,9 core saja sudah cukup memicu node baru.
 
-Threshold: error < 1%, p95 baca < 200 ms (smoke) / 500 ms (stress), p95 tulis < 300 / 800 ms. Respons `409` (stok habis) dihitung sebagai perilaku benar, bukan error. Stok otomatis di-restock tiap 60 detik (`RESTOCK_INTERVAL_SECS`, `0` = mati), jadi storefront tetap bisa dipakai setelah stress test.
+Threshold: error < 1%, p95 baca < 200 ms (smoke) / 500 ms (stress).
 
 ## Bongkar demo (bersih sampai network, tanpa langkah manual)
 
@@ -134,19 +123,20 @@ Pencocokan memakai **ID persis**, bukan nama. Network yang dihapus hanya network
 
 ```
 src/
-├── main.rs      # bootstrap server, logging, graceful shutdown
+├── main.rs      # bootstrap server, koneksi database, graceful shutdown
 ├── routes.rs    # definisi route & handler HTTP
-├── state.rs     # AppState + validasi order
-├── store/       # penyimpanan: mod.rs (antarmuka), postgres.rs, memory.rs
+├── state.rs     # AppState (store, build, pod, metrik)
+├── store.rs     # penyimpanan: PostgreSQL (tokio-postgres) atau in-memory
 ├── catalog.rs   # data produk awal
 ├── error.rs     # error API → JSON
 ├── metrics.rs   # metrik Prometheus + middleware latensi
 ├── security.rs  # header keamanan (CSP dkk.)
-└── tests.rs     # test fungsional, keamanan & konkurensi
+├── recommend.rs # rekomendasi (beban CPU demo autoscaling)
+└── tests.rs     # test fungsional, keamanan & PostgreSQL
 static/          # storefront: index.html, app.css, app.js (di-embed ke binary)
 tests/load/      # skenario k6
 .zap/            # aturan OWASP ZAP
-migrations/      # skema PostgreSQL (sqlx migrate)
+migrations/      # skema PostgreSQL (idempotent, dijalankan saat startup)
 k8s/             # manifest GitOps: app, PostgreSQL StatefulSet, HPA, NetworkPolicy, monitoring
 deploy/          # master-demo.ps1, stress-test.ps1, watch-scale.ps1, destroy-demo.ps1, cleanup-civo.ps1
 Jenkinsfile      # pipeline CI/DevSecOps

@@ -1,6 +1,6 @@
 use serde::Serialize;
 
-#[derive(Debug, Clone, Serialize, sqlx::FromRow)]
+#[derive(Debug, Clone, Serialize)]
 pub struct Product {
     pub id: i32,
     pub name: String,
@@ -10,10 +10,9 @@ pub struct Product {
     /// Harga dalam Rupiah (tanpa desimal).
     pub price: i64,
     pub rating: f32,
-    pub stock: i32,
 }
 
-/// Katalog awal: di-seed ke Postgres saat startup, atau dipakai langsung oleh store in-memory.
+/// Katalog sampel (statis, di memori): cukup untuk demo dan identik di semua replika.
 pub fn seed() -> Vec<Product> {
     vec![
         product(
@@ -24,7 +23,6 @@ pub fn seed() -> Vec<Product> {
             "☕",
             89_000,
             4.9,
-            24,
         ),
         product(
             2,
@@ -34,7 +32,6 @@ pub fn seed() -> Vec<Product> {
             "👔",
             425_000,
             4.8,
-            8,
         ),
         product(
             3,
@@ -44,7 +41,6 @@ pub fn seed() -> Vec<Product> {
             "🎧",
             649_000,
             4.6,
-            15,
         ),
         product(
             4,
@@ -54,7 +50,6 @@ pub fn seed() -> Vec<Product> {
             "🌶️",
             55_000,
             4.9,
-            40,
         ),
         product(
             5,
@@ -64,7 +59,6 @@ pub fn seed() -> Vec<Product> {
             "👜",
             275_000,
             4.7,
-            12,
         ),
         product(
             6,
@@ -74,7 +68,6 @@ pub fn seed() -> Vec<Product> {
             "⌚",
             899_000,
             4.5,
-            10,
         ),
         product(
             7,
@@ -84,7 +77,6 @@ pub fn seed() -> Vec<Product> {
             "🍵",
             32_000,
             4.6,
-            60,
         ),
         product(
             8,
@@ -94,7 +86,6 @@ pub fn seed() -> Vec<Product> {
             "👟",
             349_000,
             4.7,
-            18,
         ),
         product(
             9,
@@ -104,7 +95,6 @@ pub fn seed() -> Vec<Product> {
             "⌨️",
             1_150_000,
             4.8,
-            6,
         ),
         product(
             10,
@@ -114,7 +104,6 @@ pub fn seed() -> Vec<Product> {
             "🪴",
             120_000,
             4.6,
-            14,
         ),
         product(
             11,
@@ -124,7 +113,6 @@ pub fn seed() -> Vec<Product> {
             "🕯️",
             79_000,
             4.8,
-            30,
         ),
         product(
             12,
@@ -134,12 +122,10 @@ pub fn seed() -> Vec<Product> {
             "🍶",
             65_000,
             4.5,
-            25,
         ),
     ]
 }
 
-#[allow(clippy::too_many_arguments)]
 fn product(
     id: i32,
     name: &str,
@@ -148,7 +134,6 @@ fn product(
     emoji: &str,
     price: i64,
     rating: f32,
-    stock: i32,
 ) -> Product {
     Product {
         id,
@@ -158,6 +143,5 @@ fn product(
         emoji: emoji.into(),
         price,
         rating,
-        stock,
     }
 }

@@ -1,4 +1,4 @@
-//! Metrik Prometheus tanpa dependency tambahan: counter bisnis + request HTTP + histogram latensi.
+//! Metrik Prometheus tanpa dependency tambahan: info build + request HTTP + histogram latensi.
 
 use std::{
     fmt::Write,
@@ -49,7 +49,7 @@ pub async fn track(State(state): State<AppState>, req: Request, next: Next) -> R
     response
 }
 
-pub async fn render(state: &AppState) -> String {
+pub fn render(state: &AppState) -> String {
     let mut out = String::new();
     let mut metric = |name: &str, kind: &str, help: &str, samples: &[(String, String)]| {
         let _ = writeln!(out, "# HELP {name} {help}\n# TYPE {name} {kind}");
@@ -57,45 +57,13 @@ pub async fn render(state: &AppState) -> String {
             let _ = writeln!(out, "{name}{labels} {value}");
         }
     };
-    let plain = |v: i64| [(String::new(), v.to_string())];
+    let plain = |v: u64| [(String::new(), v.to_string())];
 
-    // Metrik bisnis berasal dari database bersama: semua replika melaporkan angka global yang sama,
-    // jadi di Grafana diagregasi dengan max(), bukan sum(). Jika DB tak terjangkau, bagian ini dilewati.
-    if let Ok(stats) = state.stats().await {
-        for (name, kind, help, value) in [
-            (
-                "nusamart_orders_total",
-                "counter",
-                "Jumlah order yang berhasil.",
-                stats.orders,
-            ),
-            (
-                "nusamart_items_sold_total",
-                "counter",
-                "Jumlah item terjual.",
-                stats.items_sold,
-            ),
-            (
-                "nusamart_revenue_rupiah_total",
-                "counter",
-                "Total omzet dalam Rupiah.",
-                stats.revenue,
-            ),
-            (
-                "nusamart_stock_units",
-                "gauge",
-                "Total unit stok tersisa.",
-                stats.stock_units,
-            ),
-        ] {
-            metric(name, kind, help, &plain(value));
-        }
-    }
     metric(
         "nusamart_uptime_seconds",
         "gauge",
         "Lama proses berjalan.",
-        &plain(state.started_at.elapsed().as_secs() as i64),
+        &plain(state.started_at.elapsed().as_secs()),
     );
     metric(
         "nusamart_build_info",

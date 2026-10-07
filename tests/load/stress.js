@@ -5,7 +5,7 @@
 //   k6 run -e BASE_URL=http://<ip-lb>       -e PROFILE=spike  tests/load/stress.js   # lonjakan mendadak (±2,5 menit)
 //   k6 run -e BASE_URL=http://<ip-lb>       -e PROFILE=scale  tests/load/stress.js   # autoscaling node (±8 menit)
 //
-// Alur tiap virtual user meniru pembeli: buka toko → lihat katalog → cari produk → kadang checkout.
+// Alur tiap virtual user meniru pengunjung: buka toko → lihat katalog → cari produk → buka detail produk.
 
 import http from "k6/http";
 import { check, group, sleep } from "k6";
@@ -51,7 +51,6 @@ const DEFAULT_THRESHOLDS = {
   // Gate kualitas: pipeline gagal jika dilanggar.
   http_req_failed: ["rate<0.01"],
   "http_req_duration{type:read}": [PROFILE === "smoke" ? "p(95)<200" : "p(95)<500"],
-  "http_req_duration{type:write}": [PROFILE === "smoke" ? "p(95)<300" : "p(95)<800"],
   checks: ["rate>0.99"],
 };
 
@@ -59,7 +58,6 @@ const DEFAULT_THRESHOLDS = {
 const SCALE_THRESHOLDS = {
   http_req_failed: ["rate<0.05"],
   "http_req_duration{type:read}": ["p(95)<3000"],
-  "http_req_duration{type:write}": ["p(95)<3000"],
   "http_req_duration{type:reco}": ["p(95)<5000"],
   checks: ["rate>0.95"],
 };
@@ -71,9 +69,6 @@ export const options = {
   thresholds: PROFILE === "scale" ? SCALE_THRESHOLDS : DEFAULT_THRESHOLDS,
   summaryTrendStats: ["avg", "med", "p(90)", "p(95)", "max"],
 };
-
-// 409 = stok habis: perilaku bisnis yang benar (tidak oversell), bukan error.
-http.setResponseCallback(http.expectedStatuses(200, 201, 409));
 
 const SEARCHES = ["kopi", "batik", "keyboard", "teh", "tas", "lilin"];
 const read = { tags: { type: "read" } };
@@ -97,7 +92,8 @@ export default function ({ productIds }) {
     const q = SEARCHES[Math.floor(Math.random() * SEARCHES.length)];
     check(http.get(`${BASE_URL}/api/products?q=${q}`, read), { "search 200": (r) => r.status === 200 });
 
-    check(http.get(`${BASE_URL}/api/stats`, read), { "stats 200": (r) => r.status === 200 });
+    const productId = productIds[Math.floor(Math.random() * productIds.length)];
+    check(http.get(`${BASE_URL}/api/products/${productId}`, read), { "detail 200": (r) => r.status === 200 });
   });
 
   if (PROFILE === "scale") {
@@ -111,21 +107,4 @@ export default function ({ productIds }) {
   }
 
   sleep(Math.random() * 1.5 + 0.5);
-
-  // ±30% pengunjung checkout.
-  if (Math.random() < 0.3) {
-    group("checkout", () => {
-      const productId = productIds[Math.floor(Math.random() * productIds.length)];
-      const res = http.post(
-        `${BASE_URL}/api/orders`,
-        JSON.stringify({ customer: `k6-vu-${__VU}`, items: [{ product_id: productId, quantity: 1 }] }),
-        { headers: { "Content-Type": "application/json" }, tags: { type: "write" } },
-      );
-      check(res, {
-        "order dibuat atau stok habis": (r) => r.status === 201 || r.status === 409,
-        "tidak ada server error": (r) => r.status < 500,
-      });
-    });
-    sleep(1);
-  }
 }
