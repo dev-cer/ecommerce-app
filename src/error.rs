@@ -11,6 +11,8 @@ pub enum ApiError {
     NotFound(String),
     /// Kegagalan internal (mis. database). Detail hanya dicatat di log, tidak dikirim ke klien.
     Internal(String),
+    /// Dependency opsional (mis. Prometheus untuk statistik live) tidak tersedia.
+    Unavailable(String),
 }
 
 impl From<tokio_postgres::Error> for ApiError {
@@ -23,6 +25,7 @@ impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
         let (status, message) = match self {
             ApiError::NotFound(m) => (StatusCode::NOT_FOUND, m),
+            ApiError::Unavailable(m) => (StatusCode::SERVICE_UNAVAILABLE, m),
             ApiError::Internal(detail) => {
                 eprintln!("kesalahan internal: {detail}");
                 (

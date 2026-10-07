@@ -12,9 +12,7 @@ async function api(path) {
 
 async function loadProducts() {
   state.products = await api("/api/products");
-  const cats = new Set(state.products.map(p => p.category));
-  $("sProducts").textContent = state.products.length;
-  $("sCategories").textContent = cats.size;
+  if (!live.on) renderCatalogStats();
   renderChips();
   renderGrid();
 }
@@ -91,13 +89,83 @@ document.addEventListener("click", e => {
 $("search").addEventListener("input", e => { state.query = e.target.value; renderGrid(); });
 document.addEventListener("keydown", e => e.key === "Escape" && togglePanel(false));
 
-// Footer & statistik "Pod" memperlihatkan versi build dan pod yang melayani (berganti karena load balancing).
+// Footer memperlihatkan versi build dan pod yang melayani (berganti karena load balancing).
 async function loadBuild() {
   const h = await api("/health");
+  state.pod = h.instance;
   $("build").textContent = `build ${h.build} · pod ${h.instance}`;
-  $("sPod").textContent = h.instance.split("-").pop();
+  if (!live.on) renderCatalogStats();
+}
+
+// ---------- Statistik hero ----------
+// Live (Prometheus): Replika · Node app-pool · Req/detik — angkanya bergerak saat stress test,
+// HPA menambah pod, dan Cluster Autoscaler menambah node. Fallback: Produk · Kategori · Pod.
+const live = { on: false, shown: {} };
+const fmt = n => Math.round(n).toLocaleString("id-ID");
+
+function stat(key, value, label, sub = "", cls = "") {
+  return `<div class="stat ${cls}" data-key="${key}">
+    <b data-value="${value ?? ""}">${value == null ? "–" : fmt(value)}</b>
+    <small>${label}</small>${sub ? `<em>${sub}</em>` : ""}</div>`;
+}
+
+function renderCatalogStats() {
+  const pod = state.pod ? state.pod.split("-").pop() : "…";
+  $("stats").innerHTML =
+    stat("products", state.products.length, "Produk") +
+    stat("categories", new Set(state.products.map(p => p.category)).size, "Kategori") +
+    `<div class="stat"><b>${pod}</b><small>Pod</small></div>`;
+}
+
+function renderLiveStats(s) {
+  const scaling = s.desired != null && s.replicas != null && s.desired !== s.replicas;
+  const replicaSub = scaling
+    ? `${s.desired > s.replicas ? "▲" : "▼"} menuju ${s.desired}`
+    : "pod aktif";
+  const rpsSub = s.p95_ms != null ? `p95 ${s.p95_ms < 10 ? s.p95_ms.toFixed(1) : fmt(s.p95_ms)} ms` : "idle";
+  const busy = (s.rps ?? 0) >= 50;
+
+  $("stats").innerHTML =
+    stat("replicas", s.replicas, "Replika", replicaSub, scaling ? "scaling" : "") +
+    stat("nodes", s.nodes, "Node", "app-pool") +
+    stat("rps", s.rps, "Req/detik", rpsSub, busy ? "hot" : "");
+
+  // Animasi count-up + pulse untuk angka yang berubah sejak poll sebelumnya.
+  $("stats").querySelectorAll(".stat").forEach(el => {
+    const b = el.querySelector("b");
+    const key = el.dataset.key, to = s[key], from = live.shown[key];
+    if (to == null) return;
+    if (from != null && from !== to) {
+      el.classList.add("pulse");
+      tween(b, from, to);
+    }
+    live.shown[key] = to;
+  });
+}
+
+function tween(el, from, to, ms = 700) {
+  const start = performance.now();
+  const step = now => {
+    const t = Math.min(1, (now - start) / ms), e = 1 - Math.pow(1 - t, 3);
+    el.textContent = fmt(from + (to - from) * e);
+    if (t < 1) requestAnimationFrame(step);
+  };
+  requestAnimationFrame(step);
+}
+
+async function loadLive() {
+  try {
+    renderLiveStats(await api("/api/live"));
+    live.on = true;
+  } catch {
+    // Prometheus belum terpasang/terjangkau (mis. sebelum ACT 3 atau saat jalan lokal).
+    if (live.on) { live.on = false; live.shown = {}; }
+    renderCatalogStats();
+  }
 }
 
 loadProducts();
 loadBuild();
+loadLive();
 setInterval(loadBuild, 5000);
+setInterval(loadLive, 2000);

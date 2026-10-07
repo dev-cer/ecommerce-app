@@ -1,6 +1,6 @@
 use std::{sync::Arc, time::Instant};
 
-use crate::{metrics::HttpMetrics, store::Store};
+use crate::{live::LiveSource, metrics::HttpMetrics, store::Store};
 
 /// State bersama (murah di-clone). Katalog ada di PostgreSQL (PVC), jadi semua replika aplikasi
 /// melihat data yang sama dan HPA bebas menambah/mengurangi pod.
@@ -15,6 +15,8 @@ pub struct AppState {
     pub http: Arc<HttpMetrics>,
     /// Beratnya "model" rekomendasi (beban CPU untuk demo autoscaling).
     pub reco_work: u32,
+    /// Sumber statistik live klaster (Prometheus); `None` bila `PROMETHEUS_URL` tidak di-set.
+    pub live: Option<Arc<LiveSource>>,
 }
 
 impl AppState {
@@ -27,6 +29,7 @@ impl AppState {
             instance: env("HOSTNAME", "local").into(),
             http: Arc::default(),
             reco_work,
+            live: LiveSource::from_env().map(Arc::new),
         }
     }
 }

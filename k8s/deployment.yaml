@@ -49,6 +49,14 @@ spec:
             # Berat komputasi /api/recommendations (±3 ms CPU per request); dipakai profil k6 "scale".
             - name: RECO_WORK
               value: "100000"
+            # Statistik live hero storefront (Replika · Node · Req/detik) via GET /api/live.
+            # Service Prometheus dari release Helm "kcd-monitoring" (kube-prometheus-stack, ACT 3);
+            # cek dengan: kubectl get svc -n monitoring. Belum terpasang → storefront fallback ke
+            # statistik katalog.
+            - name: PROMETHEUS_URL
+              value: http://kcd-monitoring-kube-promet-prometheus.monitoring.svc:9090
+            - name: POD_NAMESPACE
+              valueFrom: { fieldRef: { fieldPath: metadata.namespace } }
           readinessProbe:
             httpGet:
               path: /ready

@@ -12,6 +12,7 @@ use serde_json::{Value, json};
 use crate::{
     catalog::Product,
     error::{ApiError, ApiResult},
+    live::LiveStats,
     metrics,
     recommend::{self, Recommendation},
     security,
@@ -22,7 +23,8 @@ pub fn router(state: AppState) -> Router {
     let api = Router::new()
         .route("/products", get(list_products))
         .route("/products/{id}", get(get_product))
-        .route("/recommendations", get(recommendations));
+        .route("/recommendations", get(recommendations))
+        .route("/live", get(live_stats));
 
     Router::new()
         .route("/", get(storefront))
@@ -137,4 +139,18 @@ async fn recommendations(
         .await
         .map_err(|err| ApiError::Internal(err.to_string()))?
         .map(Json)
+}
+
+/// Statistik live klaster untuk hero storefront (replika, node, req/detik, p95).
+/// 503 bila Prometheus tidak dikonfigurasi/terjangkau → frontend memakai statistik katalog.
+async fn live_stats(State(state): State<AppState>) -> ApiResult<Json<LiveStats>> {
+    let source = state
+        .live
+        .as_ref()
+        .ok_or_else(|| ApiError::Unavailable("statistik live tidak dikonfigurasi".into()))?;
+    source
+        .stats()
+        .await
+        .map(Json)
+        .map_err(ApiError::Unavailable)
 }

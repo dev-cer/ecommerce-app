@@ -21,10 +21,12 @@
       <h1>Produk lokal pilihan,<br>diantar secepat sprint.</h1>
       <p>Katalog sampel yang ditenagai Rust + Axum di Civo Kubernetes. Klik produk untuk rekomendasi serupa.</p>
     </div>
-    <div class="stats">
-      <div class="stat"><b id="sProducts">0</b><small>Produk</small></div>
-      <div class="stat"><b id="sCategories">0</b><small>Kategori</small></div>
-      <div class="stat"><b id="sPod">…</b><small>Pod</small></div>
+    <!-- Diisi app.js: statistik live klaster (Replika · Node · Req/detik) atau, bila Prometheus
+         belum siap, statistik katalog (Produk · Kategori · Pod). -->
+    <div id="stats" class="stats" aria-live="polite">
+      <div class="stat"><b>…</b><small>Memuat</small></div>
+      <div class="stat"><b>…</b><small>Memuat</small></div>
+      <div class="stat"><b>…</b><small>Memuat</small></div>
     </div>
   </section>
 
@@ -34,7 +36,7 @@
 
 <footer>
   <div><span class="build"><i></i><span id="build">build …</span></span></div>
-  API: <code>GET /api/products</code> · <code>GET /api/recommendations?product_id=</code> · <code>GET /health</code> · <code>GET /metrics</code>
+  API: <code>GET /api/products</code> · <code>GET /api/recommendations?product_id=</code> · <code>GET /api/live</code> · <code>GET /health</code> · <code>GET /metrics</code>
 </footer>
 
 <div id="panel">

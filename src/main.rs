@@ -2,6 +2,7 @@
 
 mod catalog;
 mod error;
+mod live;
 mod metrics;
 mod recommend;
 mod routes;
