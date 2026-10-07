@@ -120,9 +120,13 @@ spec:
         script {
           // Commit manifest dari Jenkins sendiri tidak perlu dibangun ulang (mencegah loop), tetapi
           // build yang ditekan manual ("Build Now") selalu jalan, juga saat HEAD adalah commit manifest.
-          def message = sh(script: 'git log -1 --pretty=%B', returnStdout: true).trim()
+          // Dicocokkan ke author commit + akhir baris judul saja: teks "[skip ci]" di tengah judul/isi
+          // (mis. judul merge PR yang membahasnya) tidak boleh ikut melewati build.
+          def author = sh(script: 'git log -1 --pretty=%ae', returnStdout: true).trim()
+          def subject = sh(script: 'git log -1 --pretty=%s', returnStdout: true).trim()
+          def fromJenkins = author == 'jenkins@kcd-bandung.local' || subject.endsWith('[skip ci]')
           def manual = !currentBuild.getBuildCauses('hudson.model.Cause$UserIdCause').isEmpty()
-          env.SKIP_CI = (message.contains('[skip ci]') && !manual) ? 'true' : 'false'
+          env.SKIP_CI = (fromJenkins && !manual) ? 'true' : 'false'
           env.TAG = "${env.BUILD_NUMBER}-${env.GIT_COMMIT.substring(0, 7)}"
           currentBuild.displayName = "#${env.BUILD_NUMBER} · ${env.TAG}"
           if (env.SKIP_CI == 'true') {
