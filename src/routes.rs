@@ -1,8 +1,6 @@
-use std::time::Duration;
-
 use axum::{
     Json, Router,
-    extract::{DefaultBodyLimit, Path, Query, State},
+    extract::{Path, Query, State},
     http::{StatusCode, header},
     middleware,
     response::{Html, IntoResponse},
@@ -10,7 +8,6 @@ use axum::{
 };
 use serde::Deserialize;
 use serde_json::{Value, json};
-use tower_http::timeout::TimeoutLayer;
 
 use crate::{
     catalog::Product,
@@ -18,20 +15,13 @@ use crate::{
     metrics,
     recommend::{self, Recommendation},
     security,
-    state::{AppState, OrderRequest},
-    store::{Order, Stats},
+    state::AppState,
 };
-
-/// Ukuran body request maksimum; order terbesar yang valid jauh di bawah ini.
-const MAX_BODY_BYTES: usize = 16 * 1024;
-const REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
 
 pub fn router(state: AppState) -> Router {
     let api = Router::new()
         .route("/products", get(list_products))
         .route("/products/{id}", get(get_product))
-        .route("/orders", get(list_orders).post(create_order))
-        .route("/stats", get(stats))
         .route("/recommendations", get(recommendations));
 
     Router::new()
@@ -42,11 +32,6 @@ pub fn router(state: AppState) -> Router {
         .route("/ready", get(ready))
         .route("/metrics", get(metrics))
         .nest("/api", api)
-        .layer(DefaultBodyLimit::max(MAX_BODY_BYTES))
-        .layer(TimeoutLayer::with_status_code(
-            StatusCode::REQUEST_TIMEOUT,
-            REQUEST_TIMEOUT,
-        ))
         .layer(middleware::from_fn(security::headers))
         .layer(middleware::from_fn_with_state(
             state.clone(),
@@ -80,7 +65,7 @@ fn static_asset(content_type: &'static str, body: &'static str) -> impl IntoResp
     )
 }
 
-/// Liveness: proses hidup. Tidak bergantung pada database agar pod tidak di-restart saat DB lambat.
+/// Liveness: proses hidup, plus info build & pod untuk footer storefront.
 async fn health(State(state): State<AppState>) -> Json<Value> {
     Json(json!({
         "status": "ok",
@@ -92,7 +77,7 @@ async fn health(State(state): State<AppState>) -> Json<Value> {
     }))
 }
 
-/// Readiness: pod hanya menerima traffic jika penyimpanan terjangkau.
+/// Readiness: pod hanya menerima traffic jika database terjangkau.
 async fn ready(State(state): State<AppState>) -> (StatusCode, Json<Value>) {
     if state.store.ready().await {
         (StatusCode::OK, Json(json!({ "status": "ready" })))
@@ -105,7 +90,7 @@ async fn ready(State(state): State<AppState>) -> (StatusCode, Json<Value>) {
 }
 
 async fn metrics(State(state): State<AppState>) -> String {
-    metrics::render(&state).await
+    metrics::render(&state)
 }
 
 #[derive(Deserialize)]
@@ -118,31 +103,23 @@ async fn list_products(
     State(state): State<AppState>,
     Query(filter): Query<ProductFilter>,
 ) -> ApiResult<Json<Vec<Product>>> {
-    state
-        .products(filter.category.as_deref(), filter.q.as_deref())
-        .await
-        .map(Json)
+    let products = state
+        .store
+        .search(filter.category.as_deref(), filter.q.as_deref())
+        .await?;
+    Ok(Json(products))
 }
 
 async fn get_product(
     State(state): State<AppState>,
     Path(id): Path<i32>,
 ) -> ApiResult<Json<Product>> {
-    state.product(id).await.map(Json)
-}
-
-async fn list_orders(State(state): State<AppState>) -> ApiResult<Json<Vec<Order>>> {
-    state.orders().await.map(Json)
-}
-
-async fn create_order(
-    State(state): State<AppState>,
-    Json(req): Json<OrderRequest>,
-) -> ApiResult<(StatusCode, Json<Order>)> {
     state
-        .place_order(req)
-        .await
-        .map(|order| (StatusCode::CREATED, Json(order)))
+        .store
+        .product(id)
+        .await?
+        .map(Json)
+        .ok_or_else(|| ApiError::NotFound(format!("produk #{id} tidak ditemukan")))
 }
 
 #[derive(Deserialize)]
@@ -160,8 +137,4 @@ async fn recommendations(
         .await
         .map_err(|err| ApiError::Internal(err.to_string()))?
         .map(Json)
-}
-
-async fn stats(State(state): State<AppState>) -> ApiResult<Json<Stats>> {
-    state.stats().await.map(Json)
 }

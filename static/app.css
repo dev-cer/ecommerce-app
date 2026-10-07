@@ -30,18 +30,6 @@ header {
   flex: 1; max-width: 420px; margin-left: auto; padding: 10px 14px;
   border: 1px solid var(--line); border-radius: 999px; background: var(--surface); color: var(--ink);
 }
-.cart-btn {
-  position: relative; border: 0; background: var(--ink); color: var(--bg);
-  padding: 10px 16px; border-radius: 999px; font-weight: 600;
-}
-.badge {
-  position: absolute; top: -6px; right: -6px; min-width: 22px; height: 22px; padding: 0 6px;
-  border-radius: 999px; background: var(--brand); color: var(--brand-ink);
-  font-size: 12px; display: grid; place-items: center;
-}
-.badge:empty { display: none; }
-.badge.bump { animation: bump .35s ease; }
-@keyframes bump { 50% { transform: scale(1.35); } }
 
 .hero {
   margin: 24px 0; padding: 36px 32px; border-radius: 24px; color: #fff;
@@ -102,12 +90,6 @@ header {
 .line { display: grid; grid-template-columns: 44px 1fr auto; gap: 12px; align-items: center; padding: 12px 0; border-bottom: 1px solid var(--line); }
 .line .e { font-size: 30px; }
 .qty { display: flex; align-items: center; gap: 6px; }
-.qty button { width: 28px; height: 28px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); }
-.checkout { padding: 20px; border-top: 1px solid var(--line); display: grid; gap: 10px; }
-.checkout input { padding: 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); font: inherit; }
-.total { display: flex; justify-content: space-between; font-weight: 800; font-size: 18px; }
-.pay { border: 0; padding: 14px; border-radius: 12px; background: var(--accent); color: #fff; font-weight: 700; }
-.pay:disabled { opacity: .5; cursor: not-allowed; }
 
 .toast {
   position: fixed; left: 50%; bottom: 24px; transform: translate(-50%, 120px); z-index: 30;

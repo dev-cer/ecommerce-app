@@ -46,9 +46,6 @@ spec:
               valueFrom: { secretKeyRef: { name: postgres-credentials, key: database } }
             - name: DATABASE_URL
               value: postgres://$(PGUSER):$(PGPASSWORD)@postgres:5432/$(PGDATABASE)
-            # Sampai 25 replika x 3 koneksi = 75, di bawah max_connections Postgres (100).
-            - name: DB_MAX_CONNECTIONS
-              value: "3"
             # Berat komputasi /api/recommendations (±3 ms CPU per request); dipakai profil k6 "scale".
             - name: RECO_WORK
               value: "100000"

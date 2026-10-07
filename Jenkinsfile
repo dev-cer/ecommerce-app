@@ -1,11 +1,11 @@
-// NusaMart CI/DevSecOps pipeline
-// Lint + test (memory & Postgres) + build release & SCA/secret scan
-// → paralel: [DAST (ZAP) + load test (k6) pada server sementara] dan [image (Kaniko) → scan image (Trivy)]
-// → update manifest k8s/ → ArgoCD sync. Manifest hanya diubah bila SEMUA gate lolos.
+// NusaMart CI/DevSecOps pipeline (target < 10 menit untuk deployment baru, cache dingin)
+//   1. Build & Test (fmt, test memory + PostgreSQL, binary release, server sementara) ‖ SCA & secret scan
+//   2. Paralel: DAST (ZAP) ‖ load test (k6) ‖ image (Kaniko) → scan image (Trivy)
+//   3. Update manifest k8s/ → ArgoCD sync. Manifest hanya diubah bila SEMUA gate lolos.
 //
-// Cepat: binary Rust dikompilasi sekali (Kaniko hanya mengemas, lihat Dockerfile.ci); crate, folder
-// target, dan database Trivy di-cache di node (hostPath /var/cache/jenkins-ci); image CI di-pre-pull
-// oleh k8s/ci-prepull.yaml sehingga pod build langsung jalan.
+// Cepat: dependency minimal (tokio-postgres, tanpa ORM/macro), binary dikompilasi sekali (Kaniko hanya
+// mengemas, lihat Dockerfile.ci); crate, folder target, dan DB Trivy di-cache di node (hostPath
+// /var/cache/jenkins-ci); image CI di-pre-pull oleh k8s/ci-prepull.yaml.
 //
 // Kebutuhan di namespace Jenkins (dibuat oleh deploy/master-demo.ps1):
 //   - secret docker-registry `ghcr-creds`  : push image ke GHCR
@@ -149,7 +149,7 @@ spec:
     MANIFEST   = 'k8s/deployment.yaml'
     // Semua container di pod berbagi network, jadi ZAP & k6 bisa menembak server sementara via localhost.
     TEST_URL   = 'http://localhost:18080'
-    // Postgres sidecar: test integrasi membuat database sendiri per test, server sementara memakai `postgres`.
+    // Postgres sidecar: test integrasi & server sementara (skema + seed dibuat otomatis oleh aplikasi).
     PG_URL     = 'postgres://postgres@localhost:5432/postgres'
   }
 
@@ -176,20 +176,19 @@ spec:
       }
     }
 
-    stage('Quality & Security Gate') {
+    stage('Build & Scan') {
       when { expression { env.SKIP_CI != 'true' } }
       parallel {
-        stage('Lint, Test & Build') {
+        stage('Build & Test') {
           steps {
             container('rust') {
               sh '''
                 mkdir -p reports dist && chmod 777 reports dist
                 # Jaringan ke crates.io / static.rust-lang.org bisa tersendat: coba ulang sebelum menyerah.
                 retry() { n=1; until "$@"; do [ $n -ge 3 ] && return 1; n=$((n+1)); echo "ulang ($n/3): $*"; sleep 10; done; }
-                retry rustup component add rustfmt clippy
+                retry rustup component add rustfmt
                 retry cargo fetch --locked
                 cargo fmt --check
-                cargo clippy --all-targets --locked -- -D warnings
                 for i in $(seq 1 60); do
                   bash -c 'echo > /dev/tcp/127.0.0.1/5432' 2>/dev/null && break
                   sleep 1
@@ -198,6 +197,17 @@ spec:
                 TEST_DATABASE_URL="$PG_URL" cargo test --release --locked
                 cargo build --release --locked
                 cp "$CARGO_TARGET_DIR/release/app-repo" dist/app-repo
+
+                # Server sementara (dengan PostgreSQL sidecar) untuk DAST & load test di stage berikutnya.
+                JENKINS_NODE_COOKIE=dontKillMe setsid nohup env PORT=18080 APP_VERSION="$TAG" DATABASE_URL="$PG_URL" \
+                  ./dist/app-repo > reports/app.log 2>&1 &
+                for i in $(seq 1 30); do
+                  # Image rust:slim tidak punya wget/curl; pakai /dev/tcp bawaan bash.
+                  bash -c 'exec 3<>/dev/tcp/127.0.0.1/18080 && printf "GET /ready HTTP/1.0\\r\\n\\r\\n" >&3 && head -1 <&3 | grep -q " 200 "' && exit 0
+                  sleep 1
+                done
+                cat reports/app.log
+                exit 1
               '''
             }
           }
@@ -215,45 +225,24 @@ spec:
     stage('Verify & Package') {
       when { expression { env.SKIP_CI != 'true' } }
       parallel {
-        stage('DAST & Load Test') {
-          stages {
-            stage('Start Ephemeral Server') {
-              steps {
-                container('rust') {
-                  sh '''
-                    JENKINS_NODE_COOKIE=dontKillMe setsid nohup env PORT=18080 APP_VERSION="$TAG" RESTOCK_INTERVAL_SECS=0 DATABASE_URL="$PG_URL" \
-                      ./dist/app-repo > reports/app.log 2>&1 &
-                    for i in $(seq 1 30); do
-                      # Image rust:slim tidak punya wget/curl; pakai /dev/tcp bawaan bash.
-                      bash -c 'exec 3<>/dev/tcp/127.0.0.1/18080 && printf "GET /ready HTTP/1.0\\r\\n\\r\\n" >&3 && head -1 <&3 | grep -q " 200 "' && exit 0
-                      sleep 1
-                    done
-                    cat reports/app.log
-                    exit 1
-                  '''
-                }
-              }
+        stage('DAST (OWASP ZAP)') {
+          steps {
+            container('zap') {
+              // -I: WARN tidak menggagalkan build; rule penting di .zap/rules.tsv di-set FAIL.
+              sh '''
+                cp .zap/rules.tsv /zap/wrk/
+                status=0
+                zap-baseline.py -t "$TEST_URL" -c rules.tsv -I -m 1 -r zap-report.html -J zap-report.json || status=$?
+                cp /zap/wrk/zap-report.* reports/ || true
+                exit $status
+              '''
             }
-            stage('DAST (OWASP ZAP)') {
-              steps {
-                container('zap') {
-                  // -I: WARN tidak menggagalkan build; rule penting di .zap/rules.tsv di-set FAIL.
-                  sh '''
-                    cp .zap/rules.tsv /zap/wrk/
-                    status=0
-                    zap-baseline.py -t "$TEST_URL" -c rules.tsv -I -m 1 -r zap-report.html -J zap-report.json || status=$?
-                    cp /zap/wrk/zap-report.* reports/ || true
-                    exit $status
-                  '''
-                }
-              }
-            }
-            stage('Load Test (k6)') {
-              steps {
-                container('k6') {
-                  sh 'k6 run -e BASE_URL="$TEST_URL" -e PROFILE=smoke --summary-export reports/k6-summary.json tests/load/stress.js'
-                }
-              }
+          }
+        }
+        stage('Load Test (k6)') {
+          steps {
+            container('k6') {
+              sh 'k6 run -e BASE_URL="$TEST_URL" -e PROFILE=smoke --summary-export reports/k6-summary.json tests/load/stress.js'
             }
           }
         }

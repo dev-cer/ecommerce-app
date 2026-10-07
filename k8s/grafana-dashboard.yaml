@@ -217,7 +217,7 @@ data:
         {
           "id": 5,
           "type": "stat",
-          "title": "Total order",
+          "title": "Total request",
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
@@ -235,13 +235,13 @@ data:
                 "type": "prometheus",
                 "uid": "prometheus"
               },
-              "expr": "max(nusamart_orders_total)",
+              "expr": "sum(nusamart_http_requests_total)",
               "legendFormat": ""
             }
           ],
           "fieldConfig": {
             "defaults": {
-              "unit": "none",
+              "unit": "short",
               "color": {
                 "mode": "fixed",
                 "fixedColor": "blue"
@@ -265,7 +265,7 @@ data:
         {
           "id": 6,
           "type": "stat",
-          "title": "Omzet",
+          "title": "Data PostgreSQL (PVC)",
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
@@ -283,13 +283,13 @@ data:
                 "type": "prometheus",
                 "uid": "prometheus"
               },
-              "expr": "max(nusamart_revenue_rupiah_total)",
+              "expr": "sum(kubelet_volume_stats_used_bytes{namespace=\"default\",persistentvolumeclaim=~\"data-postgres-.*\"})",
               "legendFormat": ""
             }
           ],
           "fieldConfig": {
             "defaults": {
-              "unit": "prefix:Rp ",
+              "unit": "bytes",
               "color": {
                 "mode": "fixed",
                 "fixedColor": "green"
@@ -524,7 +524,7 @@ data:
         {
           "id": 9,
           "type": "timeseries",
-          "title": "Order per menit",
+          "title": "Request per menit",
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
@@ -542,13 +542,13 @@ data:
                 "type": "prometheus",
                 "uid": "prometheus"
               },
-              "expr": "max(increase(nusamart_orders_total[1m]))",
+              "expr": "sum(increase(nusamart_http_requests_total[1m]))",
               "legendFormat": "order/menit"
             }
           ],
           "fieldConfig": {
             "defaults": {
-              "unit": "none",
+              "unit": "short",
               "custom": {
                 "fillOpacity": 20,
                 "lineWidth": 2,
@@ -573,7 +573,7 @@ data:
         {
           "id": 10,
           "type": "timeseries",
-          "title": "Stok tersisa (unit)",
+          "title": "PVC PostgreSQL: terpakai vs kapasitas",
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
@@ -591,13 +591,22 @@ data:
                 "type": "prometheus",
                 "uid": "prometheus"
               },
-              "expr": "max(nusamart_stock_units)",
-              "legendFormat": "stok"
+              "expr": "sum(kubelet_volume_stats_used_bytes{namespace=\"default\",persistentvolumeclaim=~\"data-postgres-.*\"})",
+              "legendFormat": "terpakai"
+            },
+            {
+              "refId": "B",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "sum(kubelet_volume_stats_capacity_bytes{namespace=\"default\",persistentvolumeclaim=~\"data-postgres-.*\"})",
+              "legendFormat": "kapasitas"
             }
           ],
           "fieldConfig": {
             "defaults": {
-              "unit": "none",
+              "unit": "bytes",
               "custom": {
                 "fillOpacity": 20,
                 "lineWidth": 2,
@@ -622,7 +631,7 @@ data:
         {
           "id": 11,
           "type": "timeseries",
-          "title": "Omzet per 5 menit",
+          "title": "CPU PostgreSQL",
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
@@ -640,13 +649,13 @@ data:
                 "type": "prometheus",
                 "uid": "prometheus"
               },
-              "expr": "max(increase(nusamart_revenue_rupiah_total[5m]))",
+              "expr": "sum(rate(container_cpu_usage_seconds_total{namespace=\"default\",pod=~\"postgres-.*\",container=\"postgres\"}[1m]))",
               "legendFormat": "omzet"
             }
           ],
           "fieldConfig": {
             "defaults": {
-              "unit": "prefix:Rp ",
+              "unit": "cores",
               "custom": {
                 "fillOpacity": 20,
                 "lineWidth": 2,
