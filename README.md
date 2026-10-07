@@ -69,17 +69,17 @@ curl -X POST localhost:8080/api/orders \
 ## CI/CD & GitOps (KCD Bandung 2026)
 
 ```
-git push ─▶ Jenkins ─────────────────────────────────────────────────▶ GitHub (k8s/) ─▶ ArgoCD ─▶ Civo K8s
-            ├─ Lint + unit & security test (cargo)  ┐ paralel             commit tag          sync     rolling update
-            ├─ SCA & secret scan (Trivy fs)         ┘                     [skip ci]
-            ├─ Server sementara di pod ─┬─ DAST (OWASP ZAP baseline)
-            │                           └─ Load test (k6, profil smoke + threshold)
-            ├─ Build & push image (Kaniko → ghcr.io)
-            ├─ Image scan (Trivy, gagal jika ada CRITICAL)
-            └─ GitOps: update manifest
+git push ─▶ Jenkins ────────────────────────────────────────────────────────▶ GitHub (k8s/) ─▶ ArgoCD ─▶ Civo K8s
+            ├─ Lint + test (cargo, memory & Postgres) + build release ┐ paralel     commit tag      sync     rolling update
+            ├─ SCA & secret scan (Trivy fs)                           ┘             [skip ci]
+            ├─ Server sementara ─▶ DAST (ZAP baseline) ─▶ k6 smoke   ┐ paralel
+            ├─ Image (Kaniko, kemas binary) ─▶ Trivy image (tarball) ┘
+            └─ GitOps: update manifest (hanya jika semua gate lolos)
 ```
 
 - `Jenkinsfile` — pipeline di atas. Build image memakai **Kaniko** karena agent Jenkins berjalan di dalam Kubernetes tanpa Docker daemon.
+- **Cepat**: binary Rust dikompilasi **sekali** (test & build memakai profil release); Kaniko hanya mengemasnya lewat `Dockerfile.ci` (build lokal tetap memakai `Dockerfile`). Crate, folder `target`, dan database Trivy di-cache di node app-pool (`/var/cache/jenkins-ci`), dan `k8s/ci-prepull.yaml` menarik image CI lebih dulu di tiap node app-pool, sehingga pod build langsung jalan. Build pertama di node baru tetap lebih lama (mengisi cache).
+- **Tahan jaringan lambat**: unduhan crates.io tanpa multiplexing HTTP/2 dengan retry (`CARGO_NET_RETRY`, `cargo fetch` diulang 3×); push manifest di-rebase bila `main` bergerak selama build.
 - `k8s/` — manifest yang disinkronkan ArgoCD: Deployment, Service `ecommerce-rust-svc`, ServiceMonitor, dan dua dashboard Grafana: **NusaMart · Live Demo** dan **Civo Quota & Kapasitas Klaster** (gauge ala halaman Quota Civo; dibuat dari `deploy/dashboards/civo_quota.py`, ubah kuota akun di variabel `QUOTA` lalu jalankan ulang skripnya).
 - `deploy/master-demo.ps1` — provisioning end-to-end: Terraform → ArgoCD → Jenkins (job dibuat otomatis via JCasC) → Prometheus/Grafana.
 

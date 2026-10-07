@@ -1,0 +1,60 @@
+# Pre-pull image pod build Jenkins di setiap node app-pool (termasuk node baru dari Cluster Autoscaler),
+# supaya pod CI tidak menunggu unduhan ±3 GB image (rust, ZAP, Kaniko, ...) sebelum stage pertama.
+# Samakan daftar image dengan Jenkinsfile bila versinya diubah.
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: ci-image-prepull
+  labels: {app: ci-image-prepull}
+spec:
+  selector:
+    matchLabels: {app: ci-image-prepull}
+  template:
+    metadata:
+      labels: {app: ci-image-prepull}
+    spec:
+      nodeSelector: {kubernetes.civo.com/civo-node-pool: app-pool}
+      initContainers:
+      - name: rust
+        image: rust:1.98-slim-trixie
+        command: ['true']
+        resources:
+          requests: {cpu: 5m, memory: 8Mi}
+          limits: {cpu: 100m, memory: 64Mi}
+      - name: kaniko
+        image: gcr.io/kaniko-project/executor:v1.24.0-debug
+        command: [/busybox/true]
+        resources:
+          requests: {cpu: 5m, memory: 8Mi}
+          limits: {cpu: 100m, memory: 64Mi}
+      - name: postgres
+        image: postgres:17-alpine
+        command: ['true']
+        resources:
+          requests: {cpu: 5m, memory: 8Mi}
+          limits: {cpu: 100m, memory: 64Mi}
+      - name: zap
+        image: ghcr.io/zaproxy/zaproxy:stable
+        command: ['true']
+        resources:
+          requests: {cpu: 5m, memory: 8Mi}
+          limits: {cpu: 100m, memory: 64Mi}
+      - name: k6
+        image: grafana/k6:2.3.0
+        command: [k6, version]
+        resources:
+          requests: {cpu: 5m, memory: 8Mi}
+          limits: {cpu: 100m, memory: 64Mi}
+      - name: trivy
+        image: aquasec/trivy:0.74.0
+        command: [trivy, --version]
+        resources:
+          requests: {cpu: 5m, memory: 8Mi}
+          limits: {cpu: 100m, memory: 64Mi}
+      containers:
+      - name: pause
+        image: registry.k8s.io/pause:3.10
+        resources:
+          requests: {cpu: 5m, memory: 8Mi}
+          limits: {cpu: 100m, memory: 64Mi}
+      terminationGracePeriodSeconds: 0

@@ -1,6 +1,11 @@
 // NusaMart CI/DevSecOps pipeline
-// Lint + test (memory & Postgres) & SCA/secret scan → DAST (ZAP) + load test (k6) pada server sementara di pod
-// → build image (Kaniko) → scan image (Trivy) → update manifest k8s/ → ArgoCD sync.
+// Lint + test (memory & Postgres) + build release & SCA/secret scan
+// → paralel: [DAST (ZAP) + load test (k6) pada server sementara] dan [image (Kaniko) → scan image (Trivy)]
+// → update manifest k8s/ → ArgoCD sync. Manifest hanya diubah bila SEMUA gate lolos.
+//
+// Cepat: binary Rust dikompilasi sekali (Kaniko hanya mengemas, lihat Dockerfile.ci); crate, folder
+// target, dan database Trivy di-cache di node (hostPath /var/cache/jenkins-ci); image CI di-pre-pull
+// oleh k8s/ci-prepull.yaml sehingga pod build langsung jalan.
 //
 // Kebutuhan di namespace Jenkins (dibuat oleh deploy/master-demo.ps1):
 //   - secret docker-registry `ghcr-creds`  : push image ke GHCR
@@ -30,6 +35,26 @@ spec:
         limits: { cpu: "2", memory: 3Gi }
       command: ["sleep"]
       args: ["infinity"]
+      env:
+        # Unduhan crates.io dari klaster kadang macet ("transfer too slow ... 0 bytes"): satu koneksi
+        # per unduhan (tanpa multiplexing HTTP/2) + retry & timeout lebih longgar.
+        - name: CARGO_HTTP_MULTIPLEXING
+          value: "false"
+        - name: CARGO_NET_RETRY
+          value: "10"
+        - name: CARGO_HTTP_TIMEOUT
+          value: "120"
+        - name: CARGO_TARGET_DIR
+          value: /cache/target
+        - name: CARGO_INCREMENTAL
+          value: "0"
+      volumeMounts:
+        - name: cargo-registry
+          mountPath: /usr/local/cargo/registry
+        - name: cargo-git
+          mountPath: /usr/local/cargo/git
+        - name: cargo-target
+          mountPath: /cache/target
     - name: kaniko
       image: gcr.io/kaniko-project/executor:v1.24.0-debug
       resources:
@@ -83,10 +108,24 @@ spec:
       env:
         - name: DOCKER_CONFIG
           value: /kaniko/.docker
+        - name: TRIVY_CACHE_DIR
+          value: /cache/trivy
       volumeMounts:
         - name: docker-config
           mountPath: /kaniko/.docker
+        - name: trivy-cache
+          mountPath: /cache/trivy
   volumes:
+    # Cache di disk node app-pool: build berikutnya di node yang sama tidak mengunduh/kompilasi ulang
+    # dependency. Aman dibuang kapan saja (hanya cache); build tidak berjalan bersamaan.
+    - name: cargo-registry
+      hostPath: { path: /var/cache/jenkins-ci/cargo-registry, type: DirectoryOrCreate }
+    - name: cargo-git
+      hostPath: { path: /var/cache/jenkins-ci/cargo-git, type: DirectoryOrCreate }
+    - name: cargo-target
+      hostPath: { path: /var/cache/jenkins-ci/target, type: DirectoryOrCreate }
+    - name: trivy-cache
+      hostPath: { path: /var/cache/jenkins-ci/trivy, type: DirectoryOrCreate }
     - name: zap-wrk
       emptyDir: {}
     - name: docker-config
@@ -140,20 +179,25 @@ spec:
     stage('Quality & Security Gate') {
       when { expression { env.SKIP_CI != 'true' } }
       parallel {
-        stage('Lint & Unit/Security Tests') {
+        stage('Lint, Test & Build') {
           steps {
             container('rust') {
               sh '''
-                mkdir -p reports && chmod 777 reports
-                rustup component add rustfmt clippy
+                mkdir -p reports dist && chmod 777 reports dist
+                # Jaringan ke crates.io / static.rust-lang.org bisa tersendat: coba ulang sebelum menyerah.
+                retry() { n=1; until "$@"; do [ $n -ge 3 ] && return 1; n=$((n+1)); echo "ulang ($n/3): $*"; sleep 10; done; }
+                retry rustup component add rustfmt clippy
+                retry cargo fetch --locked
                 cargo fmt --check
                 cargo clippy --all-targets --locked -- -D warnings
                 for i in $(seq 1 60); do
                   bash -c 'echo > /dev/tcp/127.0.0.1/5432' 2>/dev/null && break
                   sleep 1
                 done
-                TEST_DATABASE_URL="$PG_URL" cargo test --locked
-                cargo build --locked
+                # Satu profil (release) untuk test & binary: dependency dikompilasi sekali saja.
+                TEST_DATABASE_URL="$PG_URL" cargo test --release --locked
+                cargo build --release --locked
+                cp "$CARGO_TARGET_DIR/release/app-repo" dist/app-repo
               '''
             }
           }
@@ -161,80 +205,87 @@ spec:
         stage('SCA & Secret Scan') {
           steps {
             container('trivy') {
-              sh 'trivy fs --scanners vuln,secret --severity HIGH,CRITICAL --exit-code 1 --skip-dirs target --skip-dirs reports --no-progress .'
+              sh 'trivy fs --scanners vuln,secret --severity HIGH,CRITICAL --exit-code 1 --skip-dirs target --skip-dirs reports --skip-dirs dist --skip-version-check --no-progress .'
             }
           }
         }
       }
     }
 
-    stage('DAST & Load Test') {
+    stage('Verify & Package') {
       when { expression { env.SKIP_CI != 'true' } }
-      stages {
-        stage('Start Ephemeral Server') {
-          steps {
-            container('rust') {
-              sh '''
-                JENKINS_NODE_COOKIE=dontKillMe setsid nohup env PORT=18080 APP_VERSION="$TAG" RESTOCK_INTERVAL_SECS=0 DATABASE_URL="$PG_URL" \
-                  ./target/debug/app-repo > reports/app.log 2>&1 &
-                for i in $(seq 1 30); do
-                  # Image rust:slim tidak punya wget/curl; pakai /dev/tcp bawaan bash.
-                  bash -c 'exec 3<>/dev/tcp/127.0.0.1/18080 && printf "GET /ready HTTP/1.0\\r\\n\\r\\n" >&3 && head -1 <&3 | grep -q " 200 "' && exit 0
-                  sleep 1
-                done
-                cat reports/app.log
-                exit 1
-              '''
+      parallel {
+        stage('DAST & Load Test') {
+          stages {
+            stage('Start Ephemeral Server') {
+              steps {
+                container('rust') {
+                  sh '''
+                    JENKINS_NODE_COOKIE=dontKillMe setsid nohup env PORT=18080 APP_VERSION="$TAG" RESTOCK_INTERVAL_SECS=0 DATABASE_URL="$PG_URL" \
+                      ./dist/app-repo > reports/app.log 2>&1 &
+                    for i in $(seq 1 30); do
+                      # Image rust:slim tidak punya wget/curl; pakai /dev/tcp bawaan bash.
+                      bash -c 'exec 3<>/dev/tcp/127.0.0.1/18080 && printf "GET /ready HTTP/1.0\\r\\n\\r\\n" >&3 && head -1 <&3 | grep -q " 200 "' && exit 0
+                      sleep 1
+                    done
+                    cat reports/app.log
+                    exit 1
+                  '''
+                }
+              }
+            }
+            stage('DAST (OWASP ZAP)') {
+              steps {
+                container('zap') {
+                  // -I: WARN tidak menggagalkan build; rule penting di .zap/rules.tsv di-set FAIL.
+                  sh '''
+                    cp .zap/rules.tsv /zap/wrk/
+                    status=0
+                    zap-baseline.py -t "$TEST_URL" -c rules.tsv -I -m 1 -r zap-report.html -J zap-report.json || status=$?
+                    cp /zap/wrk/zap-report.* reports/ || true
+                    exit $status
+                  '''
+                }
+              }
+            }
+            stage('Load Test (k6)') {
+              steps {
+                container('k6') {
+                  sh 'k6 run -e BASE_URL="$TEST_URL" -e PROFILE=smoke --summary-export reports/k6-summary.json tests/load/stress.js'
+                }
+              }
             }
           }
         }
-        stage('DAST (OWASP ZAP)') {
-          steps {
-            container('zap') {
-              // -I: WARN tidak menggagalkan build; rule penting di .zap/rules.tsv di-set FAIL.
-              sh '''
-                cp .zap/rules.tsv /zap/wrk/
-                status=0
-                zap-baseline.py -t "$TEST_URL" -c rules.tsv -I -r zap-report.html -J zap-report.json || status=$?
-                cp /zap/wrk/zap-report.* reports/ || true
-                exit $status
-              '''
+        // Image boleh di-push lebih dulu: manifest (deploy) baru diubah setelah semua gate lolos.
+        stage('Image') {
+          stages {
+            stage('Build & Push Image') {
+              steps {
+                container('kaniko') {
+                  // Hanya mengemas binary hasil stage rust (Dockerfile.ci): tanpa kompilasi & unduhan crate.
+                  sh '''
+                    mkdir -p ci-out
+                    /kaniko/executor \
+                      --context "dir://$WORKSPACE" \
+                      --dockerfile Dockerfile.ci \
+                      --build-arg APP_VERSION="$TAG" \
+                      --destination "$IMAGE:$TAG" \
+                      --destination "$IMAGE:latest" \
+                      --tar-path ci-out/image.tar
+                  '''
+                }
+              }
+            }
+            stage('Image Scan (Trivy)') {
+              steps {
+                container('trivy') {
+                  // Scan tarball hasil Kaniko: tidak perlu menarik ulang image dari registry.
+                  sh 'trivy image --input ci-out/image.tar --severity CRITICAL --ignore-unfixed --exit-code 1 --skip-version-check --no-progress'
+                }
+              }
             }
           }
-        }
-        stage('Load Test (k6)') {
-          steps {
-            container('k6') {
-              sh 'k6 run -e BASE_URL="$TEST_URL" -e PROFILE=smoke --summary-export reports/k6-summary.json tests/load/stress.js'
-            }
-          }
-        }
-      }
-    }
-
-    stage('Build & Push Image') {
-      when { expression { env.SKIP_CI != 'true' } }
-      steps {
-        container('kaniko') {
-          sh '''
-            /kaniko/executor \
-              --context "dir://$WORKSPACE" \
-              --dockerfile Dockerfile \
-              --build-arg APP_VERSION="$TAG" \
-              --destination "$IMAGE:$TAG" \
-              --destination "$IMAGE:latest" \
-              --cache=true \
-              --cache-repo "$IMAGE/cache"
-          '''
-        }
-      }
-    }
-
-    stage('Image Scan (Trivy)') {
-      when { expression { env.SKIP_CI != 'true' } }
-      steps {
-        container('trivy') {
-          sh 'trivy image --severity CRITICAL --ignore-unfixed --exit-code 1 --no-progress "$IMAGE:$TAG"'
         }
       }
     }
@@ -249,7 +300,13 @@ spec:
             git config user.email "jenkins@kcd-bandung.local"
             git add "$MANIFEST"
             git commit -m "deploy: ecommerce-app $TAG [skip ci]"
-            git push "https://$GH_USER:$GH_TOKEN@$GIT_REPO" HEAD:main
+            # main bisa bergerak selama build (mis. PR lain di-merge): rebase commit manifest lalu coba lagi.
+            for i in 1 2 3; do
+              git pull --rebase "https://$GH_USER:$GH_TOKEN@$GIT_REPO" main &&
+                git push "https://$GH_USER:$GH_TOKEN@$GIT_REPO" HEAD:main && exit 0
+              sleep 5
+            done
+            exit 1
           '''
         }
       }
