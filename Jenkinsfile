@@ -118,9 +118,11 @@ spec:
     stage('Prepare') {
       steps {
         script {
-          // Commit manifest dari Jenkins sendiri tidak perlu dibangun ulang (mencegah loop).
+          // Commit manifest dari Jenkins sendiri tidak perlu dibangun ulang (mencegah loop), tetapi
+          // build yang ditekan manual ("Build Now") selalu jalan, juga saat HEAD adalah commit manifest.
           def message = sh(script: 'git log -1 --pretty=%B', returnStdout: true).trim()
-          env.SKIP_CI = message.contains('[skip ci]') ? 'true' : 'false'
+          def manual = !currentBuild.getBuildCauses('hudson.model.Cause$UserIdCause').isEmpty()
+          env.SKIP_CI = (message.contains('[skip ci]') && !manual) ? 'true' : 'false'
           env.TAG = "${env.BUILD_NUMBER}-${env.GIT_COMMIT.substring(0, 7)}"
           currentBuild.displayName = "#${env.BUILD_NUMBER} · ${env.TAG}"
           if (env.SKIP_CI == 'true') {
