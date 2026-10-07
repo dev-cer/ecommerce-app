@@ -10,7 +10,7 @@
     ./stress-test.ps1                  # spike (default): ±1,5 menit, 300 user + rekomendasi berat CPU -> pod HPA naik
     ./stress-test.ps1 -Profile stress  # naik bertahap sampai 300 user (±2 menit)
     ./stress-test.ps1 -Profile smoke   # cek cepat 30 detik
-    ./stress-test.ps1 -Profile scale   # ±5 menit: HPA mentok, pod Pending, Cluster Autoscaler menambah node
+    ./stress-test.ps1 -Profile scale   # ±6 menit: HPA sampai 30 pod, pod Pending, Cluster Autoscaler menambah node sampai 4
 #>
 [CmdletBinding()]
 param(

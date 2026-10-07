@@ -3,7 +3,7 @@
 //   k6 run -e BASE_URL=http://localhost:8080 -e PROFILE=smoke  tests/load/stress.js   # CI gate (±30 detik)
 //   k6 run -e BASE_URL=http://<ip-lb>       -e PROFILE=spike  tests/load/stress.js   # demo HPA cepat (±1,5 menit)
 //   k6 run -e BASE_URL=http://<ip-lb>       -e PROFILE=stress tests/load/stress.js   # naik bertahap (±2 menit)
-//   k6 run -e BASE_URL=http://<ip-lb>       -e PROFILE=scale  tests/load/stress.js   # autoscaling node (±5 menit)
+//   k6 run -e BASE_URL=http://<ip-lb>       -e PROFILE=scale  tests/load/stress.js   # autoscaling node sampai 4 (±6 menit)
 //
 // Alur tiap virtual user meniru pengunjung: buka toko → lihat katalog → cari produk → buka detail produk.
 
@@ -34,10 +34,11 @@ const PROFILES = {
     { duration: "10s", target: 0 },
   ],
   // Beban berat yang melebihi kapasitas app-pool: HPA menambah pod sampai ada yang Pending, lalu
-  // Cluster Autoscaler menambah node Civo (±2-3 menit). Puncak 4 menit agar node baru sempat bergabung.
+  // Cluster Autoscaler menambah node Civo (±2-3 menit) sampai maxSize 4. Puncak 5 menit agar node
+  // ke-3 dan ke-4 sempat bergabung dan semua replika Running sebelum beban turun.
   scale: [
     { duration: "30s", target: 600 },
-    { duration: "4m", target: 600 },
+    { duration: "5m", target: 600 },
     { duration: "30s", target: 0 },
   ],
 };
