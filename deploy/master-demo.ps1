@@ -274,12 +274,29 @@ try {
     if ($LASTEXITCODE -ne 0 -or -not $clusterName) {
         throw "Output 'cluster_name' tidak ditemukan. Tambahkan: output ""cluster_name"" { value = civo_kubernetes_cluster.<nama>.name }"
     }
+    # `civo ... --save` selalu menulis ke ~/.kube/config. Bila sesi ini punya $env:KUBECONFIG yang menunjuk
+    # file lain (sisa skrip/terminal sebelumnya), kubectl tidak melihat konteks baru dan jatuh ke
+    # localhost:8080 -> loop "menunggu semua node Ready" berjalan tanpa akhir.
+    $defaultKubeconfig = Join-Path $HOME ".kube\config"
+    if ($env:KUBECONFIG) {
+        Write-Host "⚠️  `$env:KUBECONFIG='$($env:KUBECONFIG)' diabaikan; memakai $defaultKubeconfig untuk sesi ini." -ForegroundColor Yellow
+        Remove-Item Env:KUBECONFIG
+    }
     Invoke-Native "Mengambil kubeconfig" { civo kubernetes config $clusterName --save }
-    Invoke-Quiet { kubectl config use-context $clusterName } | Out-Null
+    Invoke-Native "Memilih konteks $clusterName" { kubectl config use-context $clusterName }
 
     Wait-Until "semua node Ready" 600 {
-        $nodes = Invoke-Quiet { kubectl get nodes --no-headers }
-        $nodes -and -not ($nodes | Where-Object { $_ -notmatch '\sReady\s' })
+        $nodes = @(Invoke-Quiet { kubectl get nodes --no-headers })
+        $notReady = @($nodes | Where-Object { $_ -notmatch '\sReady\s' })
+        if ($nodes.Count -and -not $notReady.Count) { return $true }
+        # Tampilkan penyebabnya supaya tidak menunggu dalam diam.
+        if (-not $nodes.Count) {
+            $err = Invoke-Quiet { kubectl get nodes 2>&1 } | Select-Object -Last 1
+            Write-Host "     kubectl belum bisa membaca node: $err" -ForegroundColor DarkGray
+        } else {
+            $notReady | ForEach-Object { Write-Host "     belum Ready: $_" -ForegroundColor DarkGray }
+        }
+        $false
     }
     Write-Done "Act -1 selesai: klaster '$clusterName' siap dan terhubung."
 
